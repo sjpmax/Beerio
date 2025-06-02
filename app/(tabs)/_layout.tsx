@@ -46,7 +46,8 @@ export default function TabLayout() {
             </Link>
           ),
         }}
-      /> <Tabs.Screen
+      />
+      <Tabs.Screen
         name="beerAdd"
         options={{
           title: 'Add',
