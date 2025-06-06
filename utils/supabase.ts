@@ -384,11 +384,7 @@ async function braveWebSearch(query: string): Promise<BraveSearchResult[]> {
 
         // Add CORS proxy for web platform
         if (Platform?.OS === 'web') {
-            // Option 1: Use cors-anywhere (for testing)
-            url = `https://cors-anywhere.herokuapp.com/${url}`;
-
-            // Option 2: Use your own proxy (uncomment when you set it up)
-            // url = `https://your-domain.vercel.app/api/brave-proxy?query=${encodeURIComponent(query)}`;
+            url = `https://beerio-proxy-v2.vercel.app/api/brave-search?query=${encodeURIComponent(query)}`;
         }
 
         const response = await fetch(url, {
