@@ -36,7 +36,7 @@ envHelpers/beerio-455619-0b58f80cb038.json
 # typescript
 *.tsbuildinfo.vs/Beerio/copilot-chat/
 .vs/
-*.json
+.json
 **/*credentials*
 **/*secret*
 **/*key*
