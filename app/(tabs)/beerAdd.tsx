@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { View, TextInput, Button, Text, Alert, TouchableOpacity, Image, StyleSheet, ScrollView, FlatList, Platform } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import * as ImagePicker from 'expo-image-picker';
-import { supabase, fetchBeerTypes, fetchBars, searchAllBeers, BeerSuggestion } from '../../utils/supabase';
+import { supabase, fetchBeerTypes, fetchBars, searchAllBeers, BeerSuggestion, getCurrentUser  } from '../../utils/supabase';
 
 
 interface BeerSuggestion {
@@ -32,19 +32,19 @@ export default function BeerAdd() {
   const [selectedBar, setSelectedBar] = useState('');
   const [abv, setAbv] = useState('');
   const [price, setPrice] = useState('');
-  const [size, setSize] = useState('16');
+  const [size, setSize] = useState('');
   const [image, setImage] = useState(null);
   const [beerTypes, setBeerTypes] = useState([]);
   const [beerSuggestions, setBeerSuggestions] = useState<BeerSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedBeerInfo, setSelectedBeerInfo] = useState<BeerSuggestion | null>(null);
   const [brewerySuggestions, setBrewerySuggestions] = useState<BrewerySuggestion[]>([]);
   const [showBrewerySuggestions, setShowBrewerySuggestions] = useState(false);
   const [isSearchingBreweries, setIsSearchingBreweries] = useState(false);
   const [breweryId, setBreweryId] = useState<string | null>(null);
-
+  const [beerFormat, setBeerFormat] = useState('draft');const [isSubmitting, setIsSubmitting] = useState(false);
+const [lastSubmittedBeer, setLastSubmittedBeer] = useState('');
 
  useEffect(() => {
     async function getBeerTypes() {
@@ -193,155 +193,65 @@ const selectBeer = (beer: BeerSuggestion) => {
 }
 
 
+async function addBeer() {
+    if (!beerName || !beerType || !abv || !price) {
+      Alert.alert('Error', 'Please fill in all fields');
+      return;
+    }
 
- async function addBeer() {
-    console.log('🔥 addBeer function called!');
-    
     setIsSubmitting(true);
-    
+
     try {
-      // Validation with working alerts
-      if (!beerName?.trim()) {
-        showAlert('Missing Information', 'Please enter a beer name');
-        return;
-      }
-      
-      if (!beerType?.trim()) {
-        showAlert('Missing Information', 'Please select a beer type');
-        return;
-      }
-      
-      if (!abv?.trim()) {
-        showAlert('Missing Information', 'Please enter the ABV percentage');
-        return;
-      }
-      
-      if (!price?.trim()) {
-        showAlert('Missing Information', 'Please enter the price');
-        return;
-      }
-      
-      if (!selectedBar || selectedBar === '') {
-        showAlert('Missing Information', 'Please select a bar from the dropdown');
+      // Get current user
+      const currentUser = await getCurrentUser();
+      if (!currentUser) {
+        Alert.alert('Error', 'You must be logged in to add beers');
         return;
       }
 
-      let finalBreweryId = breweryId;
-      
-      if (brewery && !breweryId) {
-        try {
-          const newBrewery = await createNewBrewery(brewery);
-          finalBreweryId = newBrewery.id.toString();
-        } catch (breweryError) {
-          showAlert('Brewery Error', 'Failed to create brewery. Please try again.');
-          return;
-        }
-      }
-
-      // Validate numbers
-      const abvNumber = parseFloat(abv);
-      if (isNaN(abvNumber) || abvNumber <= 0 || abvNumber > 20) {
-        showAlert('Invalid ABV', 'Please enter a valid ABV between 0.1 and 20');
-        return;
-      }
-
-      const priceNumber = parseFloat(price);
-      if (isNaN(priceNumber) || priceNumber <= 0) {
-        showAlert('Invalid Price', 'Please enter a valid price greater than $0');
-        return;
-      }
-
-      const sizeNumber = parseInt(size);
-      if (isNaN(sizeNumber) || sizeNumber <= 0) {
-        showAlert('Invalid Size', 'Please enter a valid size in ounces');
-        return;
-      }
-
-      // Check for duplicates
-      try {
-        const duplicate = await checkExactDuplicate(
-          beerName.trim(),
-          finalBreweryId ? parseInt(finalBreweryId) : null,
-          selectedBar,
-          sizeNumber
-        );
-
-        if (duplicate) {
-          showAlert(
-            'Beer Already Exists',
-            `${beerName} (${sizeNumber}oz) already exists at this bar for $${duplicate.price}. Please check existing entries or choose a different size.`
-          );
-          return;
-        }
-      } catch (duplicateError) {
-        console.warn('Duplicate check failed, proceeding anyway:', duplicateError);
-      }
-
-      // Prepare data
-      const beerData = {
-        name: beerName.trim(),
-        type: beerType,
-        brewery_id: finalBreweryId ? parseInt(finalBreweryId) : null,
-        abv: abvNumber,
-        price: priceNumber,
-        size_oz: sizeNumber,
-        bar_id: selectedBar,
-        user_id: null,
-        source: selectedBeerInfo?.source || 'custom',
-        external_id: selectedBeerInfo?.source === 'beerdb' ? selectedBeerInfo.id : null,
-        pending_review: true
-      };
-
-      console.log('Inserting beer with data:', beerData);
-
-      // Insert beer
-      const { data, error } = await supabase.from('beers').insert([beerData]).select();
+      const { error } = await supabase.from('beers').insert([
+        {
+          name: beerName,
+          type: beerType,
+          abv: parseFloat(abv),
+          price: parseFloat(price),
+          size_oz: parseInt(size),
+          beer_format: beerFormat,
+          bar_id: null,
+          user_id: null,
+          pending_review: true,
+          status: 'pending',
+          submitted_by: currentUser.id,
+          submitted_at: new Date().toISOString(),
+        },
+      ]);
 
       if (error) {
-        let userMessage = 'Failed to add beer. ';
+        Alert.alert('Error', error.message);
+      } else {
+        // Show success with beer name
+        setLastSubmittedBeer(beerName);
+        Alert.alert(
+          '🍺 Success!', 
+          `${beerName} has been submitted for review!\n\nAdmins will review it soon and it'll appear in the main list once approved.`,
+          [{ text: 'Add Another Beer', style: 'default' }]
+        );
         
-        if (error.code === '22P02') {
-          userMessage = 'Invalid data format. Please check your inputs and try again.';
-        } else if (error.code === '23505') {
-          userMessage = 'This beer already exists at this bar.';
-        } else if (error.code === '23502') {
-          userMessage = 'Missing required information. Please fill all fields.';
-        } else if (error.code === '23503') {
-          userMessage = 'Selected bar or brewery no longer exists. Please refresh and try again.';
-        } else if (error.message?.includes('uuid')) {
-          userMessage = 'Invalid bar selection. Please select a different bar.';
-        } else {
-          userMessage = `Database error: ${error.message}`;
-        }
-        
-        showAlert('Cannot Add Beer', userMessage);
-        return;
+        // Reset form after a short delay so user sees the success
+        setTimeout(() => {
+          setBeerName('');
+          setBeerType('');
+          setAbv('');
+          setPrice('');
+          setSize('16');
+          setBeerFormat('draft');
+          setImage(null);
+          setLastSubmittedBeer('');
+        }, 500);
       }
-
-      console.log('Beer added successfully:', data);
-      
-      // SUCCESS with multiple options
-      showAlert(
-        'Beer Submitted Successfully! 🍺', 
-        'Your beer has been submitted for review. It will appear in the app once approved by an admin.',
-        [
-          { 
-            text: 'Add Another Beer',
-            onPress: () => resetForm()
-          },
-          {
-            text: 'Done',
-            style: 'default'
-          }
-        ]
-      );
-
-    } catch (error) {
-      console.error('Unexpected error:', error);
-      showAlert(
-        'Unexpected Error',
-        `Something went wrong while adding your beer. Please try again.\n\nError: ${error.message || 'Unknown error'}`
-      );
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to add beer');
+      console.error('Error adding beer:', error);
     } finally {
       setIsSubmitting(false);
     }
@@ -439,7 +349,7 @@ function resetForm() {
   setBreweryId(null);
   setAbv('');
   setPrice('');
-  setSize('16');
+  setSize('');
   setImage(null);
   setSelectedBar('');
   setSelectedBeerInfo(null);
@@ -447,10 +357,19 @@ function resetForm() {
   setShowSuggestions(false);
   setBrewerySuggestions([]);
   setShowBrewerySuggestions(false);
+  setBeerFormat('draft');
 }
 
   return (
-      <View style={styles.card}>
+   <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <View style={styles.card}>
+      {lastSubmittedBeer && (
+        <View style={styles.successBanner}>
+          <Text style={styles.successText}>
+            ✅ {lastSubmittedBeer} submitted successfully!
+          </Text>
+        </View>
+      )}
         {/* Bar Selection */}
         <View style={styles.pickerRow}>
           <View style={styles.pickerWrapper}>
@@ -466,11 +385,11 @@ function resetForm() {
             </Picker>
           </View>
           <TouchableOpacity 
-            style={styles.addButton} 
-            onPress={() => {/* navigate to add bar screen */}}
-          >
-            <Text style={styles.addButtonText}>+</Text>
-          </TouchableOpacity> 
+              style={styles.addButton} 
+              onPress={() => navigation.navigate('AddBar')}
+            >
+              <Text style={styles.addButtonText}>+</Text>
+            </TouchableOpacity>
         </View>
 
          {/* Brewery Input with Autocomplete */}
@@ -585,6 +504,19 @@ function resetForm() {
           onChangeText={setPrice}
           keyboardType="numeric"
         />
+        <View style={styles.pickerRow}>
+        <View style={styles.pickerWrapper}>
+          <Picker
+            selectedValue={beerFormat}
+            onValueChange={(itemValue) => setBeerFormat(itemValue)}
+            style={styles.picker}
+          >
+            <Picker.Item label="Draft" value="draft" />
+            <Picker.Item label="Bottle" value="bottle" />
+            <Picker.Item label="Can" value="can" />
+          </Picker>
+        </View> 
+        </View>
         <TextInput
           style={styles.input}
           placeholder="Size (oz)"
@@ -600,12 +532,17 @@ function resetForm() {
           <Text style={styles.imageButtonText}>📷 Upload Menu Image</Text>
         </TouchableOpacity>
 
- <Button 
-          title={isSubmitting ? "Adding Beer..." : "Add Beer"} 
-          onPress={addBeer}
-          disabled={isSubmitting}
-        />
+ <TouchableOpacity 
+  style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]} 
+  onPress={addBeer}
+  disabled={isSubmitting}
+>
+  <Text style={styles.submitButtonText}>
+    {isSubmitting ? '🍺 Adding Beer...' : 'Add Beer'}
+  </Text>
+</TouchableOpacity>
       </View>
+      </ScrollView>
   );
 }
 
@@ -762,4 +699,31 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     textAlign: 'center',
   },
+  submitButton: {
+  backgroundColor: '#2563eb',
+  padding: 16,
+  borderRadius: 8,
+  alignItems: 'center',
+  marginTop: 8,
+},
+submitButtonDisabled: {
+  backgroundColor: '#94a3b8',
+},
+submitButtonText: {
+  color: '#fff',
+  fontSize: 18,
+  fontWeight: '600',
+},successBanner: {
+  backgroundColor: '#dcfce7',
+  borderColor: '#16a34a',
+  borderWidth: 1,
+  borderRadius: 8,
+  padding: 12,
+  marginBottom: 16,
+},
+successText: {
+  color: '#15803d',
+  textAlign: 'center',
+  fontWeight: '600',
+},
 });

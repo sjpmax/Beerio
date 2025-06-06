@@ -57,8 +57,15 @@ export default function TabLayout() {
       <Tabs.Screen
         name="authScreen"
         options={{
-          title: 'Users',
+          title: 'Account',
           tabBarIcon: ({ color }) => <TabBarIcon name="user" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="barAdd"
+        options={{
+          title: 'Add bar',
+          tabBarIcon: ({ color }) => <TabBarIcon name="map-marker" color={color} />,
         }}
       />
     </Tabs>

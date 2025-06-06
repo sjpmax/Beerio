@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, useColorScheme, Button, FlatList } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Button, FlatList } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { supabase } from '../../utils/supabase';
 
@@ -7,7 +7,6 @@ export default function BeerValueTable() {
     const [beers, setBeers] = useState([]);
     const [sortConfig, setSortConfig] = useState({ key: 'valueScore', direction: 'desc' });
     const [loading, setLoading] = useState(true);
-    const colorScheme = useColorScheme();
     const navigation = useNavigation();
 
     // Calculate how much alcohol you get per dollar (ABV * oz / price)
@@ -155,65 +154,73 @@ export default function BeerValueTable() {
         </>
     );
 
-    // Define the styles based on color scheme
-    const styles = StyleSheet.create({
-        container: {
-            flex: 1,
-            padding: 16,
-            backgroundColor: colorScheme === 'dark' ? '#242c40' : '#f5f5f5',
-        },
-        title: {
-            fontSize: 22,
-            fontWeight: 'bold',
-            marginBottom: 16,
-            textAlign: 'center',
-            color: colorScheme === 'dark' ? '#FFD700' : '#333333',
-        },
-        table: {
-            borderWidth: 1,
-            borderColor: colorScheme === 'dark' ? '#4a4a4a' : '#dddddd',
-            borderRadius: 8,
-            overflow: 'hidden',
-        },
-        row: {
-            flexDirection: 'row',
-            borderBottomWidth: 1,
-            borderColor: colorScheme === 'dark' ? '#4a4a4a' : '#dddddd',
-        },
-        headerRow: {
-            backgroundColor: colorScheme === 'dark' ? '#3a3f4b' : '#e0e0e0',
-        },
-        bestValueRow: {
-            backgroundColor: colorScheme === 'dark' ? '#2c4a2c' : '#d0f0d0',
-        },
-        headerCell: {
-            padding: 12,
-            fontWeight: 'bold',
-            color: colorScheme === 'dark' ? '#FFD700' : '#333333',
-            textAlign: 'center',
-        },
-        cell: {
-            padding: 12,
-            textAlign: 'center',
-            color: colorScheme === 'dark' ? '#e0e0e0' : '#333333',
-        },
-        loading: {
-            padding: 20,
-            textAlign: 'center',
-            color: colorScheme === 'dark' ? '#FFD700' : '#333333',
-        },
-        footer: {
-            marginTop: 16,
-            padding: 16,
-            backgroundColor: colorScheme === 'dark' ? '#3a3f4b' : '#e0e0e0',
-            borderRadius: 8,
-        },
-        footerText: {
-            color: colorScheme === 'dark' ? '#e0e0e0' : '#333333',
-            fontSize: 14,
-        }
-    });
-
+ const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        padding: 16,
+        backgroundColor: '#1e3a8a',
+        alignItems: 'center', // Center the content
+    },
+    title: {
+        fontSize: 22,
+        fontWeight: 'bold',
+        marginBottom: 16,
+        textAlign: 'center',
+        color: '#FFD700',
+    },
+    table: {
+        borderWidth: 1,
+        borderColor: '#3b82f6',
+        borderRadius: 8,
+        overflow: 'hidden',
+        maxWidth: 1200, // Constrain max width
+        width: '100%', // But still responsive
+        alignSelf: 'center', // Center the table
+    },
+    row: {
+        flexDirection: 'row',
+        borderBottomWidth: 1,
+        borderColor: '#3b82f6',
+        minHeight: 44, // Consistent row height
+    },
+    headerRow: {
+        backgroundColor: '#1e40af',
+    },
+    bestValueRow: {
+        backgroundColor: '#166534',
+    },
+    headerCell: {
+        padding: 8, // Reduced padding
+        fontWeight: 'bold',
+        color: '#FFD700',
+        textAlign: 'center',
+        fontSize: 14, // Smaller font
+    },
+    cell: {
+        padding: 8, // Reduced padding
+        textAlign: 'center',
+        color: '#f1f5f9',
+        fontSize: 13, // Smaller font for data
+    },
+    loading: {
+        padding: 20,
+        textAlign: 'center',
+        color: '#FFD700',
+    },
+    footer: {
+        marginTop: 16,
+        padding: 16,
+        backgroundColor: '#1e40af',
+        borderRadius: 8,
+        maxWidth: 1200, // Match table width
+        width: '100%',
+        alignSelf: 'center',
+    },
+    footerText: {
+        color: '#f1f5f9',
+        fontSize: 14,
+    }
+});
     if (loading) {
         return (
             <View style={styles.container}>

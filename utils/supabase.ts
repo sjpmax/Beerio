@@ -16,10 +16,26 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   },
 });
 
-// User Sign-Up
-export async function signUp(email: string, password: string) {
+export async function signUp(email: string, password: string, username?: string) {
   const { data, error } = await supabase.auth.signUp({ email, password });
   if (error) throw error;
+  
+  // If signup successful and user was created, create profile in users table
+  if (data.user) {
+    const { error: profileError } = await supabase.from('users').insert({
+      auth_user_id: data.user.id,
+      email: data.user.email,
+      username: username || email.split('@')[0], // Use email prefix if no username provided
+      role: 'user',
+      reputation: 0
+    });
+    
+    if (profileError) {
+      console.error('Error creating user profile:', profileError);
+      // Don't throw here - auth user was created successfully
+    }
+  }
+  
   return data;
 }
 
@@ -56,18 +72,13 @@ export async function fetchBars() {
   return data;
 }
 
-// Types for beer search
-interface BeerSuggestion {
-  id: string;
-  name: string;
-  abv: string;
-  type: string;
-  brewery?: string;
-  source: 'beerdb' | 'local';
-  // New fields for existing beer info
-  availableAt?: string;
-  currentPrice?: number;
-  currentSize?: number;
+export async function fetchStates() {
+  const { data, error } = await supabase
+    .from('states')
+    .select('id, name, abbreviation')
+    .order('name');
+  if (error) throw error;
+  return data;
 }
 
 // Search beers using Open Food Facts API (much more current than beer.db!)
