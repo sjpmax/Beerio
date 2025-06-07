@@ -12,7 +12,8 @@ import {
     getEnhancedBeerAutofill,
     findBeerServingSize
 } from '../../utils/supabase';
-import { processMenuPhoto } from '../../utils/menuOCR'; // Your new OCR functions
+
+import { processMenuPhoto } from '../../utils/menuVision';
 import { showAlert, showSubmissionSuccess, showSuccessThenReset } from '../../utils/uiHelpers';
 
 interface BeerSuggestion {
@@ -113,7 +114,6 @@ export default function BeerAdd() {
         getBarNames();
     }, []);
 
-    // 📷 NEW: Menu photo scanning functions
     const takeMenuPhoto = async () => {
         try {
             const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
@@ -123,8 +123,7 @@ export default function BeerAdd() {
             }
 
             const result = await ImagePicker.launchCameraAsync({
-                allowsEditing: true,
-                aspect: [3, 4],
+                allowsEditing: false, // Let them take the photo naturally
                 quality: 0.8,
             });
 
@@ -140,9 +139,8 @@ export default function BeerAdd() {
     const pickMenuPhoto = async () => {
         try {
             const result = await ImagePicker.launchImageLibraryAsync({
-                mediaTypes: ImagePicker.MediaTypeOptions.Images,
-                allowsEditing: true,
-                aspect: [3, 4],
+                mediaTypes: ImagePicker.MediaTypeOptions.Images, // Back to the old way that worked
+                allowsEditing: false, // Just removed the aspect ratio
                 quality: 0.8,
             });
 

@@ -15,6 +15,7 @@
   "dependencies": {
     "@expo/metro-runtime": "~5.0.4",
     "@expo/vector-icons": "^14.1.0",
+    "@google-cloud/vision": "^5.2.0",
     "@gorhom/bottom-sheet": "^5.1.2",
     "@material-tailwind/react": "^2.1.10",
     "@react-native-async-storage/async-storage": "2.1.2",
@@ -26,6 +27,7 @@
     "dotenv": "^16.4.7",
     "events": "^3.3.0",
     "expo": "^53.0.0",
+    "expo-file-system": "~18.1.10",
     "expo-font": "~13.3.1",
     "expo-image-picker": "~16.1.4",
     "expo-linking": "~7.1.5",
