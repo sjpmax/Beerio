@@ -1,4 +1,5 @@
-﻿import React, { useState, useEffect } from 'react';
+﻿
+import React, { useState, useEffect, useRef } from 'react';
 import {
     View,
     Text,
@@ -49,6 +50,8 @@ export default function AddBarScreen() {
     const [showNearbyBars, setShowNearbyBars] = useState(false);
     const [isSearchingNearby, setIsSearchingNearby] = useState(false);
     const [selectedNearbyBar, setSelectedNearbyBar] = useState<NearbyBarSuggestion | null>(null);
+
+    const [searchTimeout, setSearchTimeout] = useState(null);
 
     // Special type selection
     const [specialType, setSpecialType] = useState('none');
@@ -152,6 +155,15 @@ export default function AddBarScreen() {
         getStates();
     }, []);
 
+    useEffect(() => {
+        // Cleanup timeout on component unmount
+        return () => {
+            if (searchTimeout) {
+                clearTimeout(searchTimeout);
+            }
+        };
+    }, [searchTimeout]);
+
     // Calculate distance between two coordinates
     const calculateDistance = (pos1: any, pos2: any): number => {
         const R = 6371; // Earth's radius in km
@@ -171,108 +183,171 @@ export default function AddBarScreen() {
             return;
         }
 
-        const searchTypes = ['bar', 'brewery', 'restaurant'];
-        let allResults = [];
+        // Prevent search if query is too short
+        if (query.length < 3) {
+            setNearbyBarSuggestions([]);
+            setShowNearbyBars(false);
+            return;
+        }
 
         setIsSearchingNearby(true);
 
         try {
-            console.log(`🔍 Searching for bars/breweries near ${query}...`);
+            console.log(`🔍 Searching for "${query}" near location...`);
 
-            // Search across multiple business types
-            for (const type of searchTypes) {
-                try {
-                    console.log(`🔍 Searching type: ${type}`);
-
-                    const response = await fetch(
-                        `https://maps.googleapis.com/maps/api/place/nearbysearch/json?` +
-                        `location=${location.latitude},${location.longitude}&` +
-                        `radius=5000&` +
-                        `type=${type}&` +
-                        `keyword=${encodeURIComponent(query)}&` +
-                        `key=${process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY}`
-                    );
-
-                    const data = await response.json();
-
-                    if (data.status === 'OK') {
-                        console.log(`✅ Found ${data.results.length} results for type: ${type}`);
-
-                        // Log results for this type
-                        data.results?.forEach((place, index) => {
-                            console.log(`  ${index + 1}. ${place.name} (${place.types?.join(', ')})`);
-                        });
-
-                        // Add results to our collection
-                        allResults = [...allResults, ...data.results];
-                    } else {
-                        console.log(`❌ Google Places API error for type ${type}:`, data.status);
-                    }
-                } catch (typeError) {
-                    console.error(`❌ Search failed for type ${type}:`, typeError);
-                    // Continue with other types even if one fails
-                }
-            }
-
-            console.log(`🔍 Total raw results: ${allResults.length}`);
-
-            // Remove duplicates by place_id
-            const uniqueResults = allResults.filter((place, index, self) =>
-                index === self.findIndex(p => p.place_id === place.place_id)
+            // Single optimized search call
+            const response = await fetch(
+                `https://maps.googleapis.com/maps/api/place/nearbysearch/json?` +
+                `location=${location.latitude},${location.longitude}&` +
+                `radius=8000&` +
+                `keyword=${encodeURIComponent(query)}&` +
+                `type=bar&` +
+                `key=${process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY}`
             );
 
-            console.log(`🔍 Unique results after deduplication: ${uniqueResults.length}`);
+            const data = await response.json();
 
-            // Filter and process results
-            const nearbyBars = uniqueResults
-                .filter(place => {
-                    const name = place.name.toLowerCase();
-                    const searchTerm = query.toLowerCase();
+            if (data.status !== 'OK') {
+                console.log(`❌ Google Places API error:`, data.status, data.error_message);
 
-                    // More flexible matching
-                    return name.includes(searchTerm) ||
-                        name.split(' ').some(word => word.startsWith(searchTerm));
-                })
-                .map(place => ({
-                    name: place.name,
-                    address: place.vicinity,
-                    placeId: place.place_id,
-                    distance: calculateDistance(location, place.geometry.location),
-                    rating: place.rating,
-                    isOpen: place.opening_hours?.open_now,
-                    businessType: place.types.includes('brewery') ? 'brewery' :
-                        place.types.includes('bar') ? 'bar' : 'restaurant',
-                    coordinates: {
-                        latitude: place.geometry.location.lat,
-                        longitude: place.geometry.location.lng
-                    }
-                }))
-                .sort((a, b) => {
-                    // Sort by: 1) exact name match first, 2) then by distance
-                    const aExact = a.name.toLowerCase().includes(query.toLowerCase());
-                    const bExact = b.name.toLowerCase().includes(query.toLowerCase());
+                // If no results with type=bar, try a broader search
+                if (data.status === 'ZERO_RESULTS') {
+                    console.log(`🔄 Trying broader search without type filter...`);
+                    return await searchNearbyBarsBackup(query, location);
+                }
 
-                    if (aExact && !bExact) return -1;
-                    if (!aExact && bExact) return 1;
+                setNearbyBarSuggestions([]);
+                setShowNearbyBars(false);
+                return;
+            }
 
-                    return a.distance - b.distance;
-                })
-                .slice(0, 5); // Limit to 5 results
-
-            console.log(`✅ Final filtered results: ${nearbyBars.length}`);
-            nearbyBars.forEach((bar, index) => {
-                console.log(`  ${index + 1}. ${bar.name} (${bar.businessType}) - ${bar.distance.toFixed(1)}km`);
-            });
-
-            setNearbyBarSuggestions(nearbyBars);
-            setShowNearbyBars(nearbyBars.length > 0);
+            console.log(`✅ Found ${data.results?.length || 0} initial results`);
+            processSearchResults(data.results || [], query, location);
 
         } catch (error) {
             console.error('❌ Google Places search failed:', error);
+            setNearbyBarSuggestions([]);
+            setShowNearbyBars(false);
         } finally {
             setIsSearchingNearby(false);
         }
     };
+
+    const processSearchResults = (results: any[], query: string, location: any) => {
+        const nearbyBars = results
+            .filter(place => {
+                const name = place.name.toLowerCase();
+                const searchTerm = query.toLowerCase();
+
+                // Improved matching logic
+                const nameMatches = (
+                    name.includes(searchTerm) ||
+                    name.split(' ').some(word => word.startsWith(searchTerm)) ||
+                    searchTerm.split(' ').every(term => name.includes(term))
+                );
+
+                // Filter out irrelevant businesses
+                const excludeTypes = ['liquor_store', 'doctor', 'hospital', 'pharmacy', 'gas_station'];
+                const includeTypes = ['bar', 'restaurant', 'brewery', 'night_club', 'cafe'];
+
+                const hasRelevantType = place.types.some(type => includeTypes.includes(type));
+                const hasExcludedType = place.types.some(type => excludeTypes.includes(type));
+
+                return nameMatches && hasRelevantType && !hasExcludedType;
+            })
+            .map(place => ({
+                name: place.name,
+                address: place.vicinity || place.formatted_address || 'Address not available',
+                placeId: place.place_id,
+                distance: calculateDistance(location, place.geometry.location),
+                rating: place.rating,
+                isOpen: place.opening_hours?.open_now,
+                businessType: determineBusinessType(place.types),
+                coordinates: {
+                    latitude: place.geometry.location.lat,
+                    longitude: place.geometry.location.lng
+                }
+            }))
+            .sort((a, b) => {
+                const queryLower = query.toLowerCase();
+
+                // 1. Exact name match first
+                const aExact = a.name.toLowerCase() === queryLower;
+                const bExact = b.name.toLowerCase() === queryLower;
+                if (aExact && !bExact) return -1;
+                if (!aExact && bExact) return 1;
+
+                // 2. Name starts with query
+                const aStarts = a.name.toLowerCase().startsWith(queryLower);
+                const bStarts = b.name.toLowerCase().startsWith(queryLower);
+                if (aStarts && !bStarts) return -1;
+                if (!aStarts && bStarts) return 1;
+
+                // 3. Business type relevance
+                const aRelevance = getBusinessTypeRelevance(a.businessType);
+                const bRelevance = getBusinessTypeRelevance(b.businessType);
+                if (aRelevance !== bRelevance) return bRelevance - aRelevance;
+
+                // 4. Distance
+                return a.distance - b.distance;
+            })
+            .slice(0, 6); // Limit to 6 results
+
+        console.log(`✅ Final filtered results: ${nearbyBars.length}`);
+        nearbyBars.forEach((bar, index) => {
+            console.log(`  ${index + 1}. ${bar.name} (${bar.businessType}) - ${bar.distance.toFixed(1)}km`);
+        });
+
+        setNearbyBarSuggestions(nearbyBars);
+        setShowNearbyBars(nearbyBars.length > 0);
+    };
+
+
+    const determineBusinessType = (types: string[]): string => {
+        if (types.includes('brewery')) return 'brewery';
+        if (types.includes('bar')) return 'bar';
+        if (types.includes('night_club')) return 'nightclub';
+        if (types.includes('restaurant')) return 'restaurant';
+        if (types.includes('cafe')) return 'cafe';
+        return 'establishment';
+    };
+
+    const getBusinessTypeRelevance = (businessType: string): number => {
+        const relevanceMap = {
+            'brewery': 5,
+            'bar': 4,
+            'nightclub': 3,
+            'restaurant': 2,
+            'cafe': 1,
+            'establishment': 0
+        };
+        return relevanceMap[businessType] || 0;
+    };
+
+    const searchWithBackupStrategy = async (query: string, location: any) => {
+        // If first search doesn't yield good results, try a broader search
+        try {
+            const response = await fetch(
+                `https://maps.googleapis.com/maps/api/place/nearbysearch/json?` +
+                `location=${location.latitude},${location.longitude}&` +
+                `radius=5000&` +
+                `keyword=${encodeURIComponent(query + ' bar')}&` + // Add "bar" to help matching
+                `key=${process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY}`
+            );
+
+            const data = await response.json();
+
+            if (data.status === 'OK' && data.results?.length > 0) {
+                console.log(`🔄 Backup search found ${data.results.length} additional results`);
+                return data.results;
+            }
+        } catch (error) {
+            console.error('Backup search failed:', error);
+        }
+
+        return [];
+    };
+
     // Helper function to toggle daily special
     const toggleDailySpecial = (day) => {
         setDailySpecials(prev => ({
@@ -307,12 +382,27 @@ export default function AddBarScreen() {
         setBarName(text);
         setSelectedNearbyBar(null);
 
-        if (text.length >= 3 && userLocation) {
-            searchNearbyBars(text, userLocation);
-        } else {
+        // Clear existing timeout
+        if (searchTimeout) {
+            clearTimeout(searchTimeout);
+        }
+
+        // Hide suggestions immediately if text is too short
+        if (text.length < 3) {
             setNearbyBarSuggestions([]);
             setShowNearbyBars(false);
+            return;
         }
+
+        // Set new timeout for search
+        const newTimeout = setTimeout(() => {
+            if (userLocation && text.length >= 3) {
+                console.log(`🔍 Debounced search triggered for: "${text}"`);
+                searchNearbyBars(text, userLocation);
+            }
+        }, 800); // Wait 800ms after user stops typing
+
+        setSearchTimeout(newTimeout);
     };
 
     const selectNearbyBar = async (nearbyBar: NearbyBarSuggestion) => {
@@ -548,6 +638,7 @@ export default function AddBarScreen() {
                             </View>
                         )}
 
+
                         {showNearbyBars && nearbyBarSuggestions.length > 0 && (
                             <View style={styles.suggestionsContainer}>
                                 <Text style={styles.suggestionsHeader}>📍 Nearby bars matching "{barName}":</Text>
@@ -557,6 +648,7 @@ export default function AddBarScreen() {
                                             key={item.placeId}
                                             style={styles.nearbyBarItem}
                                             onPress={() => selectNearbyBar(item)}
+                                            activeOpacity={0.7}
                                         >
                                             <Text style={styles.nearbyBarName}>{item.name}</Text>
                                             <Text style={styles.nearbyBarAddress}>{item.address}</Text>
@@ -847,7 +939,7 @@ export default function AddBarScreen() {
         </KeyboardAvoidingView>
     );
 }
-// Add new styles for GPS suggestions
+
 const styles = StyleSheet.create({
     container: {
         flex: 1,
@@ -855,6 +947,7 @@ const styles = StyleSheet.create({
     },
     scrollContent: {
         padding: 20,
+        paddingBottom: 40, // Add extra bottom padding
     },
     header: {
         marginBottom: 30,
@@ -882,6 +975,10 @@ const styles = StyleSheet.create({
         backgroundColor: '#1e40af',
         borderRadius: 16,
         padding: 20,
+        // Add these properties to contain the dropdown:
+        overflow: 'visible', // Allow dropdown to show
+        position: 'relative',
+        minHeight: 600, // Ensure enough space
     },
     label: {
         fontSize: 16,
@@ -902,6 +999,9 @@ const styles = StyleSheet.create({
     inputContainer: {
         position: 'relative',
         width: '100%',
+        marginBottom: 16, // Add consistent spacing
+        // CRITICAL FIX: Ensure proper z-index stacking
+        zIndex: 1000,
     },
     searchingText: {
         fontSize: 12,
@@ -929,9 +1029,10 @@ const styles = StyleSheet.create({
         color: '#166534',
         marginTop: 2,
     },
+    // MAIN FIX: Properly contain the suggestions dropdown
     suggestionsContainer: {
         position: 'absolute',
-        top: 48,
+        top: 48, // Position below input
         left: 0,
         right: 0,
         backgroundColor: '#fff',
@@ -940,12 +1041,13 @@ const styles = StyleSheet.create({
         borderTopWidth: 0,
         borderBottomLeftRadius: 8,
         borderBottomRightRadius: 8,
-        maxHeight: 200,
+        maxHeight: 220, // Limit height to prevent too much overflow
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 5,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 8,
+        elevation: 10, // Higher elevation for Android
+        zIndex: 1001, // Ensure it's above other elements
     },
     suggestionsHeader: {
         fontSize: 12,
@@ -954,14 +1056,17 @@ const styles = StyleSheet.create({
         borderBottomWidth: 1,
         borderBottomColor: '#eee',
         fontWeight: '600',
+        backgroundColor: '#f8f9fa',
     },
     suggestionsList: {
-        maxHeight: 160,
+        maxHeight: 180, // Constrain list height, leaving room for header
+        // Simple View that will contain the mapped items
     },
     nearbyBarItem: {
         padding: 12,
         borderBottomWidth: 1,
         borderBottomColor: '#eee',
+        backgroundColor: '#fff',
     },
     nearbyBarName: {
         fontSize: 16,
@@ -996,6 +1101,7 @@ const styles = StyleSheet.create({
     row: {
         flexDirection: 'row',
         justifyContent: 'space-between',
+        marginTop: 16,
     },
     halfWidth: {
         width: '48%',

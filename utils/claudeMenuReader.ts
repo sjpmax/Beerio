@@ -5,10 +5,10 @@ import { Platform } from 'react-native';
 
 export interface ClaudeBeer {
     name: string;
-    brewery?: string;
-    abv: number;
-    price: number;
-    size?: number;
+    brewery?: string | null;
+    abv: number | null;
+    price: number | null;
+    size?: number | null;
     type: string;
     confidence: 'high' | 'medium' | 'low';
 }
@@ -59,33 +59,41 @@ export async function extractBeersWithClaude(imageUri: string): Promise<ClaudeBe
                         type: 'image',
                         source: {
                             type: 'base64',
-                            media_type: mediaType,  // ✅ USE DETECTED TYPE
+                            media_type: mediaType,
                             data: base64Image
                         }
                     },
                     {
                         type: 'text',
-                        text: `Extract all beer information from this menu image. 
+                        text: `You are analyzing a beer tap list/menu photo.
 
-Return a JSON array of beers with this exact format:
+This appears to be a beer tap list with labels showing beer names, ABV percentages, and beer styles.
+
+EXTRACTION RULES:
+✅ Extract beer names exactly as written (even if unusual like "Pasta Shapes")
+✅ Extract ABV percentages when you see X.X% 
+✅ Extract beer styles/types when clearly visible
+✅ For missing data, use null (don't guess or estimate)
+
+CRITICAL: Only extract data you can actually see:
+- If you don't see a price with $ symbol → "price": null
+- If you don't see size info (oz/ml) → "size": null  
+- If brewery not visible → "brewery": null
+
+For each beer visible:
 [
   {
-    "name": "Beer Name",
-    "brewery": "Brewery Name",
-    "type": "IPA/Lager/Stout/etc",
-    "abv": 5.2,
-    "price": 8.50,
-    "size": 16
+    "name": "Exact name from tap list",
+    "brewery": null,
+    "type": "Beer style if visible",
+    "abv": 4.8,
+    "price": null,
+    "size": null,
+    "confidence": "high"
   }
 ]
 
-Rules:
-- If ABV is not visible, estimate based on beer type (Light=4.2, IPA=6.5, Lager=5.0, Stout=5.5)
-- If size is not visible, use 16 as default
-- For dual pricing like "$7/$9", use the higher price (16oz)
-- Extract brewery from beer name if possible
-- Clean up beer names (remove quotes, extra spaces)
-- Return ONLY the JSON array, no other text`
+DO NOT guess or estimate missing information. Return only the JSON array.`
                     }
                 ]
             }]
@@ -126,11 +134,26 @@ Rules:
         }
 
         const beers = JSON.parse(jsonMatch[0]);
+        // Check for hallucination patterns
+        if (hasObviousHallucination(beers)) {
+            console.log('🚫 Detected hallucination, using names only');
+            // Use only names, set everything else to null
+            const safeBeers = beers.map((beer: any) => ({
+                name: beer.name,
+                brewery: null,
+                abv: beer.abv && beer.abv > 0 ? beer.abv : null,
+                price: null,
+                size: null,
+                type: beer.type || 'Ale',
+                confidence: 'low' as const
+            }));
+            return safeBeers;
+        }
 
         // Add confidence scores
         const beersWithConfidence = beers.map((beer: any) => ({
             ...beer,
-            confidence: 'high' as const // Claude is very reliable
+            confidence: 'high' as const
         }));
 
         console.log('✅ Claude extracted', beersWithConfidence.length, 'beers');
@@ -155,6 +178,23 @@ Rules:
         ];
     }
 }
+
+function hasObviousHallucination(beers: any[]): boolean {
+    if (beers.length === 0) return false;
+
+    // Check if all beers have identical pricing (suspicious)
+    const prices = beers.map(beer => beer.price).filter(price => price !== null && price !== undefined);
+    if (prices.length > 2) {
+        const uniquePrices = new Set(prices);
+        if (uniquePrices.size === 1) {
+            console.log('🚨 Suspicious: All beers have identical price');
+            return true;
+        }
+    }
+
+    return false;
+}
+
 
 // Helper function for web platform
 function blobToBase64(blob: Blob): Promise<string> {
