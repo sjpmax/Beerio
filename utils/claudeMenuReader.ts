@@ -33,21 +33,19 @@ export async function extractBeersWithClaude(imageUri: string): Promise<ClaudeBe
 
         // Detect media type from base64 header
         let mediaType: string;
-        if (base64Image.startsWith('iVBORw0KGgo')) {
-            mediaType = 'image/png';
-        } else if (base64Image.startsWith('/9j/') || base64Image.startsWith('iVBORw')) {
+        if (base64Image.startsWith('/9j/')) {
             mediaType = 'image/jpeg';
-        } else if (base64Image.startsWith('UklGR')) {
-            mediaType = 'image/webp';
-        } else {
-            // Default to PNG since that's what the URI shows
+        } else if (base64Image.startsWith('iVBORw0KGgo')) {
             mediaType = 'image/png';
+        } else {
+            mediaType = 'image/jpeg'; // Default to JPEG
         }
+
+        console.log('🖼️ Media type detected:', mediaType);
 
         console.log('📤 Sending image to Claude...');
         console.log('🔑 API Key exists:', !!process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY);
         console.log('📊 Image size:', base64Image.length, 'characters');
-        console.log('🖼️ Media type detected:', mediaType);
         console.log('🔍 Image URI:', imageUri);
         console.log('📋 Base64 header:', base64Image.substring(0, 50));
 
@@ -61,7 +59,7 @@ export async function extractBeersWithClaude(imageUri: string): Promise<ClaudeBe
                         type: 'image',
                         source: {
                             type: 'base64',
-                            media_type: 'image/jpeg',
+                            media_type: mediaType,  // ✅ USE DETECTED TYPE
                             data: base64Image
                         }
                     },

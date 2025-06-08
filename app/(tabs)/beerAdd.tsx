@@ -154,12 +154,20 @@ export default function BeerAdd() {
     };
 
     const processMenu = async (imageUri: string) => {
+        console.log('📷 starting picture procesing...');
+        if (!selectedBar) {
+            showAlert('Error', 'Please select a bar first before scanning menu');
+            console.log('error no bar selected');
+            return;
+        }
         setIsProcessingMenu(true);
         setShowMenuModal(true);
+       
 
+        
         try {
             console.log('📷 Processing menu photo...');
-            const beers = await processMenuPhoto(imageUri);
+            const beers = await processMenuPhoto(imageUri, selectedBar); // ✅ Pass bar ID
 
             setParsedBeers(beers);
 

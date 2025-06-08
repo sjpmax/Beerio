@@ -649,3 +649,349 @@ export async function getEnhancedBeerAutofill(beerName: string): Promise<BeerDet
         return await getAIBeerAutofill(beerName);
     }
 }
+
+
+export async function enhanceBeerWithWebData(beer: ClaudeBeer): Promise<MenuBeer> {
+    try {
+        // Search for beer details
+        const webData = await searchBeerWithBrave(
+            beer.name,
+            beer.brewery
+        );
+
+        // Also try BeerAdvocate specific search
+        const beerAdvocateData = await searchBeerAdvocate(beer.name, beer.brewery);
+
+        return {
+            ...beer,
+            // Prefer web data over estimates
+            abv: webData?.abv || beerAdvocateData?.abv || beer.abv,
+            size: webData?.size || beerAdvocateData?.size || beer.size || 16,
+            brewery: webData?.brewery || beer.brewery,
+            description: beerAdvocateData?.description,
+            rating: beerAdvocateData?.rating,
+            confidence: webData ? 'high' : beer.confidence,
+            sources: ['vision', webData ? 'brave_search' : null, beerAdvocateData ? 'beeradvocate' : null].filter(Boolean)
+        };
+    } catch (error) {
+        console.error('Enhancement failed for:', beer.name);
+        return beer; // Return original if enhancement fails
+    }
+}
+
+async function searchBeerAdvocate(beerName: string, brewery?: string): Promise<any> {
+    const queries = [
+        `site:beeradvocate.com "${beerName}" ${brewery || ''} ABV`,
+        `site:beeradvocate.com "${beerName}" review rating`,
+        `beeradvocate "${beerName}" ${brewery || ''} alcohol content`
+    ];
+
+    for (const query of queries) {
+        try {
+            const results = await braveWebSearch(query);
+            const beerAdvocateData = extractBeerAdvocateData(results);
+            if (beerAdvocateData) return beerAdvocateData;
+        } catch (error) {
+            continue;
+        }
+    }
+
+    return null;
+}
+function extractBeerAdvocateData(results: BraveSearchResult[]): any {
+    for (const result of results) {
+        if (!result.url.includes('beeradvocate.com')) continue;
+
+        const text = `${result.title} ${result.description}`.toLowerCase();
+
+        // Extract ABV from BeerAdvocate format
+        const abvMatch = text.match(/(\d+\.?\d*)\s*%\s*abv/i);
+
+        // Extract rating
+        const ratingMatch = text.match(/(\d+\.?\d*)\s*\/\s*5|score:\s*(\d+)/i);
+
+        return {
+            abv: abvMatch ? parseFloat(abvMatch[1]) : null,
+            rating: ratingMatch ? parseFloat(ratingMatch[1] || ratingMatch[2]) : null,
+            description: result.description,
+            source: 'beeradvocate'
+        };
+    }
+
+    return null;
+}
+
+// Enhanced beer validation with 4-step process
+// Add this to your utils/supabase.ts file
+
+async function enhanceBeerWithValidation(beer: ClaudeBeer, barId: string): Promise<MenuBeer> {
+    try {
+        console.log(`🔍 Validating beer: ${beer.name} at bar ${barId}`);
+
+        // Step 1: Check if beer exists in your local database
+        const existingBeer = await searchLocalBeersWithContext(beer.name, barId,
+            beer.brewery);
+        if (existingBeer.length > 0) {
+            console.log(`✅ Found ${beer.name} in local database`);
+            return mergeWithLocalData(beer, existingBeer[0]);
+        }
+
+        // Step 2: Get bar details and check if it's a brewery
+        const bar = await getBarDetails(barId);
+        if (!bar) {
+            console.log(`❌ Bar ${barId} not found`);
+            return fallbackBeerData(beer);
+        }
+
+        const isBrewery = checkIfBrewery(bar);
+        console.log(`🏭 Is ${bar.name} a brewery? ${isBrewery}`);
+
+        if (isBrewery) {
+            // Step 3: Scrape brewery website for beer details
+            const websiteData = await scrapeBreweryWebsite(bar, beer.name);
+            if (websiteData) {
+                console.log(`🌐 Found ${beer.name} on ${bar.name} website`);
+                return mergeWithWebsiteData(beer, websiteData, bar);
+            }
+        }
+
+        // Step 4: Use Brave search with context
+        const searchData = await searchBeerWithContext(beer.name, bar);
+        if (searchData) {
+            console.log(`🦁 Found ${beer.name} via Brave search`);
+            return mergeWithSearchData(beer, searchData);
+        }
+
+        // Fallback to original data with low confidence
+        console.log(`⚠️ No additional data found for ${beer.name}`);
+        return fallbackBeerData(beer);
+
+    } catch (error) {
+        console.error(`❌ Validation failed for ${beer.name}:`, error);
+        return fallbackBeerData(beer);
+    }
+}
+
+// Helper function: Search local database with context
+// Helper function: Search local database with context
+async function searchLocalBeersWithContext(beerName: string, barId: string, breweryName?: string): Promise<any[]> {
+    try {
+        let query = supabase
+            .from('beers')
+            .select(`
+                id, name, abv, type, size_oz, price,
+                breweries(name),
+                bars(name)
+            `)
+            .ilike('name', `%${beerName}%`)
+            .eq('pending_review', false)
+            .is('rejection_reason', null);
+
+        // If we know the brewery, search by brewery first (most specific)
+        if (breweryName && breweryName !== 'Unknown') {
+            const breweryQuery = await supabase
+                .from('beers')
+                .select(`
+                    id, name, abv, type, size_oz, price,
+                    breweries!inner(name),
+                    bars(name)
+                `)
+                .ilike('name', `%${beerName}%`)
+                .ilike('breweries.name', `%${breweryName}%`)
+                .eq('pending_review', false)
+                .limit(3);
+
+            if (breweryQuery.data && breweryQuery.data.length > 0) {
+                return breweryQuery.data;
+            }
+        }
+
+        // Fallback: search by bar (less specific but still useful)
+        const barQuery = await query
+            .eq('bar_id', barId)
+            .limit(3);
+
+        if (barQuery.error) throw barQuery.error;
+        return barQuery.data || [];
+
+    } catch (error) {
+        console.error('Local search error:', error);
+        return [];
+    }
+}
+
+// Helper function: Get bar details
+async function getBarDetails(barId: string): Promise<any> {
+    try {
+        const { data, error } = await supabase
+            .from('bars')
+            .select('id, name, street_address, city, website, is_brewery')
+            .eq('id', barId)
+            .single();
+
+        if (error) throw error;
+        return data;
+    } catch (error) {
+        console.error('Error fetching bar details:', error);
+        return null;
+    }
+}
+
+// Helper function: Check if bar is a brewery
+function checkIfBrewery(bar: any): boolean {
+    if (bar.is_brewery === true) return true;
+
+    const name = bar.name.toLowerCase();
+    const breweryKeywords = [
+        'brewery', 'brewing', 'brewhouse', 'brewpub',
+        'brew works', 'beer company', 'beer co'
+    ];
+
+    return breweryKeywords.some(keyword => name.includes(keyword));
+}
+
+// Helper function: Scrape brewery website
+async function scrapeBreweryWebsite(bar: any, beerName: string): Promise<any> {
+    if (!bar.website) {
+        console.log(`🌐 No website for ${bar.name}`);
+        return null;
+    }
+
+    try {
+        console.log(`🌐 Checking ${bar.website} for ${beerName}`);
+
+        // Use web_fetch to get the brewery website
+        const websiteContent = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(bar.website)}`);
+
+        if (!websiteContent.ok) {
+            console.log(`❌ Failed to fetch ${bar.website}`);
+            return null;
+        }
+
+        const data = await websiteContent.json();
+        const htmlContent = data.contents;
+
+        // Simple text search for beer name and common data patterns
+        const lowerContent = htmlContent.toLowerCase();
+        const lowerBeerName = beerName.toLowerCase();
+
+        if (!lowerContent.includes(lowerBeerName)) {
+            console.log(`❌ ${beerName} not found on website`);
+            return null;
+        }
+
+        // Extract ABV if present
+        const abvMatch = htmlContent.match(new RegExp(`${beerName}.*?(\\d+\\.?\\d*)\\s*%\\s*abv`, 'i'));
+        const abv = abvMatch ? parseFloat(abvMatch[1]) : null;
+
+        // Extract description
+        const descMatch = htmlContent.match(new RegExp(`${beerName}.*?<p[^>]*>([^<]+)`, 'i'));
+        const description = descMatch ? descMatch[1].trim() : null;
+
+        console.log(`✅ Website data for ${beerName}: ABV=${abv}, desc=${description?.substring(0, 50)}...`);
+
+        return {
+            abv,
+            description,
+            brewery: bar.name,
+            source: 'brewery_website',
+            confidence: 'high'
+        };
+
+    } catch (error) {
+        console.error(`❌ Website scraping failed for ${bar.name}:`, error);
+        return null;
+    }
+}
+
+// Helper function: Search with context using Brave
+async function searchBeerWithContext(beerName: string, bar: any): Promise<any> {
+    const searchQueries = [
+        `"${beerName}" "${bar.name}" brewery ABV`,
+        `"${beerName}" beer "${bar.city}" ABV alcohol`,
+        `"${beerName}" brewery beer ABV percentage`
+    ];
+
+    for (const query of searchQueries) {
+        try {
+            console.log(`🔍 Searching: ${query}`);
+            const searchData = await searchBeerWithBrave(beerName, bar.name);
+
+            if (searchData && searchData.confidence === 'high') {
+                return searchData;
+            }
+        } catch (error) {
+            console.error(`Search failed for query: ${query}`, error);
+            continue;
+        }
+    }
+
+    return null;
+}
+
+// Helper function: Merge with local database data
+function mergeWithLocalData(beer: ClaudeBeer, localBeer: any): MenuBeer {
+    return {
+        name: beer.name,
+        brewery: localBeer.breweries?.name || beer.brewery,
+        abv: localBeer.abv || beer.abv,
+        price: beer.price,
+        size: localBeer.size_oz || beer.size || 16,
+        type: localBeer.type || beer.type,
+        description: `Available at ${localBeer.bars?.name}`,
+        confidence: 'high',
+        rawText: `${beer.name} - Found in database`,
+        source: 'local_database'
+    };
+}
+
+// Helper function: Merge with website data
+function mergeWithWebsiteData(beer: ClaudeBeer, websiteData: any, bar: any): MenuBeer {
+    return {
+        name: beer.name,
+        brewery: bar.name,
+        abv: websiteData.abv || beer.abv,
+        price: beer.price,
+        size: beer.size || 16,
+        type: beer.type,
+        description: websiteData.description || `House beer at ${bar.name}`,
+        confidence: 'high',
+        rawText: `${beer.name} - From ${bar.name} website`,
+        source: 'brewery_website'
+    };
+}
+
+// Helper function: Merge with search data
+function mergeWithSearchData(beer: ClaudeBeer, searchData: any): MenuBeer {
+    return {
+        name: beer.name,
+        brewery: searchData.brewery || beer.brewery || 'Unknown',
+        abv: searchData.abv || beer.abv,
+        price: beer.price,
+        size: searchData.size || beer.size || 16,
+        type: searchData.type || beer.type,
+        description: searchData.description || `Beer information from web search`,
+        confidence: searchData.confidence || 'medium',
+        rawText: `${beer.name} - From web search`,
+        source: 'web_search'
+    };
+}
+
+// Helper function: Fallback when no data found
+function fallbackBeerData(beer: ClaudeBeer): MenuBeer {
+    return {
+        name: beer.name,
+        brewery: beer.brewery || 'Unknown',
+        abv: beer.abv,
+        price: beer.price,
+        size: beer.size || 16,
+        type: beer.type,
+        description: `Beer extracted from menu`,
+        confidence: 'low',
+        rawText: `${beer.name} - Vision extraction only`,
+        source: 'vision_only'
+    };
+}
+
+// Export the main function
+export { enhanceBeerWithValidation };

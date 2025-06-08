@@ -1,8 +1,7 @@
 ﻿// utils/menuOCR.ts - MUCH simpler now!
 
 import { extractBeersWithClaude, ClaudeBeer } from './claudeMenuReader';
-import { readMenuWithClaude } from './claudeVision';
-
+import { enhanceBeerWithWebData } from './supabase';
 export interface MenuBeer {
     name: string;
     brewery?: string;
@@ -17,28 +16,18 @@ export interface MenuBeer {
 
 
 export async function processMenuPhoto(imageUri: string): Promise<MenuBeer[]> {
-try {
-    console.log('📷 Processing menu photo with Claude...');
+    try {
+        // Step 1: Basic extraction (existing)
+        const claudeBeers = await extractBeersWithClaude(imageUri);
 
-    const claudeBeers = await readMenuWithClaude(imageUri);
+        // Step 2: Enhance each beer with web data
+        const enhancedBeers = await Promise.all(
+            claudeBeers.map(beer => enhanceBeerWithWebData(beer))
+        );
 
-    const menuBeers: MenuBeer[] = claudeBeers.map(beer => ({
-        name: beer.name,
-        brewery: beer.brewery,
-        abv: beer.abv,
-        price: beer.price,
-        size: beer.size || 16,
-        type: beer.type,
-        description: beer.brewery ? `${beer.brewery} ${beer.type}` : beer.type,
-        confidence: beer.confidence,
-        rawText: `${beer.name} ${beer.brewery || ''} ${beer.type} ${beer.abv}% ABV $${beer.price}`
-    }));
-
-    console.log('🍺 Found', menuBeers.length, 'beers with Claude');
-    return menuBeers;
-
-} catch (error) {
-    console.error('Menu processing failed:', error);
-    throw error;
-}
+        return enhancedBeers;
+    } catch (error) {
+        console.error('Menu processing failed:', error);
+        throw error;
+    }
 }

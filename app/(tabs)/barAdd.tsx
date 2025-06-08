@@ -8,12 +8,27 @@ import {
     ScrollView,
     Alert,
     KeyboardAvoidingView,
-    Platform
+    Platform,
+    FlatList
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { useNavigation } from '@react-navigation/native';
+import * as Location from 'expo-location';
 import { supabase, getCurrentUser, fetchStates } from '../../utils/supabase';
 import { showAlert, showSubmissionSuccess, showSuccessThenReset } from '../../utils/uiHelpers';
+
+interface NearbyBarSuggestion {
+    name: string;
+    address: string;
+    placeId: string;
+    distance: number;
+    rating?: number;
+    isOpen?: boolean;
+    coordinates: {
+        latitude: number;
+        longitude: number;
+    };
+}
 
 export default function AddBarScreen() {
     const navigation = useNavigation();
@@ -28,8 +43,15 @@ export default function AddBarScreen() {
     const [states, setStates] = useState([]);
     const [lastSubmittedBar, setLastSubmittedBar] = useState('');
 
+    // GPS and Google Maps state
+    const [userLocation, setUserLocation] = useState(null);
+    const [nearbyBarSuggestions, setNearbyBarSuggestions] = useState<NearbyBarSuggestion[]>([]);
+    const [showNearbyBars, setShowNearbyBars] = useState(false);
+    const [isSearchingNearby, setIsSearchingNearby] = useState(false);
+    const [selectedNearbyBar, setSelectedNearbyBar] = useState<NearbyBarSuggestion | null>(null);
+
     // Special type selection
-    const [specialType, setSpecialType] = useState('happy_hour');
+    const [specialType, setSpecialType] = useState('none');
 
     // Happy hour specials state
     const [specialDays, setSpecialDays] = useState({
@@ -88,6 +110,169 @@ export default function AddBarScreen() {
         { label: '11:00 AM', value: '11:00' },
     ];
 
+    // Get user location on component mount
+    useEffect(() => {
+        async function getCurrentLocation() {
+            try {
+                const { status } = await Location.requestForegroundPermissionsAsync();
+                if (status === 'granted') {
+                    console.log('📍 Getting user location...');
+                    const location = await Location.getCurrentPositionAsync({
+                        accuracy: Location.Accuracy.Balanced
+                    });
+                    setUserLocation(location.coords);
+                    console.log('✅ Location obtained:', location.coords);
+                } else {
+                    console.log('❌ Location permission denied');
+                    showAlert('Location Permission', 'Location access will help suggest nearby bars automatically.');
+                }
+            } catch (error) {
+                console.error('Error getting location:', error);
+            }
+        }
+        getCurrentLocation();
+    }, []);
+
+    // Fetch states on component mount
+    useEffect(() => {
+        async function getStates() {
+            try {
+                const stateData = await fetchStates();
+                setStates(stateData);
+
+                // Default to Pennsylvania if available
+                const pennsylvania = stateData?.find(state => state.abbreviation === 'PA');
+                if (pennsylvania) {
+                    setSelectedStateId(pennsylvania.id.toString());
+                }
+            } catch (error) {
+                console.error('Error fetching states:', error);
+            }
+        }
+        getStates();
+    }, []);
+
+    // Calculate distance between two coordinates
+    const calculateDistance = (pos1: any, pos2: any): number => {
+        const R = 6371; // Earth's radius in km
+        const dLat = (pos2.lat - pos1.latitude) * Math.PI / 180;
+        const dLon = (pos2.lng - pos1.longitude) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(pos1.latitude * Math.PI / 180) * Math.cos(pos2.lat * Math.PI / 180) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+    };
+
+    // Search nearby bars using Google Places API
+    const searchNearbyBars = async (query: string, location: any) => {
+        if (!process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY) {
+            console.log('❌ Google Maps API key not configured');
+            return;
+        }
+
+        const searchTypes = ['bar', 'brewery', 'restaurant'];
+        let allResults = [];
+
+        setIsSearchingNearby(true);
+
+        try {
+            console.log(`🔍 Searching for bars/breweries near ${query}...`);
+
+            // Search across multiple business types
+            for (const type of searchTypes) {
+                try {
+                    console.log(`🔍 Searching type: ${type}`);
+
+                    const response = await fetch(
+                        `https://maps.googleapis.com/maps/api/place/nearbysearch/json?` +
+                        `location=${location.latitude},${location.longitude}&` +
+                        `radius=5000&` +
+                        `type=${type}&` +
+                        `keyword=${encodeURIComponent(query)}&` +
+                        `key=${process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY}`
+                    );
+
+                    const data = await response.json();
+
+                    if (data.status === 'OK') {
+                        console.log(`✅ Found ${data.results.length} results for type: ${type}`);
+
+                        // Log results for this type
+                        data.results?.forEach((place, index) => {
+                            console.log(`  ${index + 1}. ${place.name} (${place.types?.join(', ')})`);
+                        });
+
+                        // Add results to our collection
+                        allResults = [...allResults, ...data.results];
+                    } else {
+                        console.log(`❌ Google Places API error for type ${type}:`, data.status);
+                    }
+                } catch (typeError) {
+                    console.error(`❌ Search failed for type ${type}:`, typeError);
+                    // Continue with other types even if one fails
+                }
+            }
+
+            console.log(`🔍 Total raw results: ${allResults.length}`);
+
+            // Remove duplicates by place_id
+            const uniqueResults = allResults.filter((place, index, self) =>
+                index === self.findIndex(p => p.place_id === place.place_id)
+            );
+
+            console.log(`🔍 Unique results after deduplication: ${uniqueResults.length}`);
+
+            // Filter and process results
+            const nearbyBars = uniqueResults
+                .filter(place => {
+                    const name = place.name.toLowerCase();
+                    const searchTerm = query.toLowerCase();
+
+                    // More flexible matching
+                    return name.includes(searchTerm) ||
+                        name.split(' ').some(word => word.startsWith(searchTerm));
+                })
+                .map(place => ({
+                    name: place.name,
+                    address: place.vicinity,
+                    placeId: place.place_id,
+                    distance: calculateDistance(location, place.geometry.location),
+                    rating: place.rating,
+                    isOpen: place.opening_hours?.open_now,
+                    businessType: place.types.includes('brewery') ? 'brewery' :
+                        place.types.includes('bar') ? 'bar' : 'restaurant',
+                    coordinates: {
+                        latitude: place.geometry.location.lat,
+                        longitude: place.geometry.location.lng
+                    }
+                }))
+                .sort((a, b) => {
+                    // Sort by: 1) exact name match first, 2) then by distance
+                    const aExact = a.name.toLowerCase().includes(query.toLowerCase());
+                    const bExact = b.name.toLowerCase().includes(query.toLowerCase());
+
+                    if (aExact && !bExact) return -1;
+                    if (!aExact && bExact) return 1;
+
+                    return a.distance - b.distance;
+                })
+                .slice(0, 5); // Limit to 5 results
+
+            console.log(`✅ Final filtered results: ${nearbyBars.length}`);
+            nearbyBars.forEach((bar, index) => {
+                console.log(`  ${index + 1}. ${bar.name} (${bar.businessType}) - ${bar.distance.toFixed(1)}km`);
+            });
+
+            setNearbyBarSuggestions(nearbyBars);
+            setShowNearbyBars(nearbyBars.length > 0);
+
+        } catch (error) {
+            console.error('❌ Google Places search failed:', error);
+        } finally {
+            setIsSearchingNearby(false);
+        }
+    };
     // Helper function to toggle daily special
     const toggleDailySpecial = (day) => {
         setDailySpecials(prev => ({
@@ -117,24 +302,39 @@ export default function AddBarScreen() {
         }));
     };
 
-    // Fetch states on component mount
-    useEffect(() => {
-        async function getStates() {
-            try {
-                const stateData = await fetchStates();
-                setStates(stateData);
 
-                // Default to Pennsylvania if available
-                const pennsylvania = stateData?.find(state => state.abbreviation === 'PA');
-                if (pennsylvania) {
-                    setSelectedStateId(pennsylvania.id.toString());
-                }
-            } catch (error) {
-                console.error('Error fetching states:', error);
-            }
+    const handleBarNameChange = (text: string) => {
+        setBarName(text);
+        setSelectedNearbyBar(null);
+
+        if (text.length >= 3 && userLocation) {
+            searchNearbyBars(text, userLocation);
+        } else {
+            setNearbyBarSuggestions([]);
+            setShowNearbyBars(false);
         }
-        getStates();
-    }, []);
+    };
+
+    const selectNearbyBar = async (nearbyBar: NearbyBarSuggestion) => {
+        console.log(`📍 Selected nearby bar: ${nearbyBar.name}`);
+        setSelectedNearbyBar(nearbyBar);
+        setBarName(nearbyBar.name);
+        setShowNearbyBars(false);
+
+        // Get detailed place info for address breakdown
+        const placeDetails = await getPlaceDetails(nearbyBar.placeId);
+
+        if (placeDetails) {
+            setStreetAddress(placeDetails.street_address);
+            setCity(placeDetails.city);
+            setZipCode(placeDetails.zip);
+
+            console.log('✅ Auto-filled address from Google Places');
+        } else {
+            // Fallback: use the basic address from search
+            setStreetAddress(nearbyBar.address);
+        }
+    };
 
     const handleSubmit = async () => {
         // Basic validation
@@ -152,10 +352,18 @@ export default function AddBarScreen() {
                 return;
             }
 
-            // For now, we'll use dummy coordinates until we add Google Maps
-            // TODO: Replace with actual geocoding
-            const dummyLat = 39.9526 + (Math.random() - 0.5) * 0.1; // Philly area
-            const dummyLng = -75.1652 + (Math.random() - 0.5) * 0.1;
+            // Use real coordinates if we have them from Google Places
+            let latitude, longitude;
+            if (selectedNearbyBar) {
+                latitude = selectedNearbyBar.coordinates.latitude;
+                longitude = selectedNearbyBar.coordinates.longitude;
+                console.log('✅ Using real coordinates from Google Places');
+            } else {
+                // Fallback to dummy coordinates
+                latitude = 39.9526 + (Math.random() - 0.5) * 0.1; // Philly area
+                longitude = -75.1652 + (Math.random() - 0.5) * 0.1;
+                console.log('⚠️ Using dummy coordinates - consider adding geocoding');
+            }
 
             const activeDailySpecials = Object.keys(dailySpecials)
                 .filter(day => dailySpecials[day].hasSpecial && dailySpecials[day].description.trim())
@@ -166,6 +374,11 @@ export default function AddBarScreen() {
 
             const selectedDaysArray = Object.keys(specialDays).filter(day => specialDays[day]);
 
+            // Check if this bar might be a brewery
+            const isBrewery = barName.toLowerCase().includes('brewery') ||
+                barName.toLowerCase().includes('brewing') ||
+                barName.toLowerCase().includes('brewhouse');
+
             const { error } = await supabase.from('bars').insert([
                 {
                     name: barName.trim(),
@@ -173,14 +386,17 @@ export default function AddBarScreen() {
                     city: city.trim(),
                     state_id: parseInt(selectedStateId),
                     zip: zipCode.trim(),
-                    latitude: dummyLat,
-                    longitude: dummyLng,
+                    latitude: latitude,
+                    longitude: longitude,
+                    is_brewery: isBrewery, // Auto-detect brewery status
+                    website: selectedNearbyBar ? await getWebsiteFromPlaceId(selectedNearbyBar.placeId) : null,
+                    google_place_id: selectedNearbyBar?.placeId || null,
                     happy_hour_days: (specialType === 'happy_hour' || specialType === 'both') ? selectedDaysArray : null,
                     happy_hour_start: (specialType === 'happy_hour' || specialType === 'both') && !isAllDay ? specialStart : null,
                     happy_hour_end: (specialType === 'happy_hour' || specialType === 'both') && !isAllDay ? specialEnd : null,
                     happy_hour_discount_amount: (specialType === 'happy_hour' || specialType === 'both') ? specialDescription : null,
-                    special_type: specialType,
-                    daily_specials: activeDailySpecials.length > 0 ? activeDailySpecials : null,
+                    special_type: specialType === 'none' ? null : specialType, // Set null for no specials
+                    daily_specials: (specialType === 'daily_specials' || specialType === 'both') && activeDailySpecials.length > 0 ? activeDailySpecials : null,
                     pending_review: true,
                     status: 'pending',
                     submitted_by: currentUser.id,
@@ -208,12 +424,54 @@ export default function AddBarScreen() {
         }
     };
 
+    // Helper to get website from place details
+    const getWebsiteFromPlaceId = async (placeId: string): Promise<string | null> => {
+        const details = await getPlaceDetails(placeId);
+        return details?.website || null;
+    };
+
+    // Add this function to your component:
+    const getPlaceDetails = async (placeId: string): Promise<any> => {
+        try {
+            const response = await fetch(
+                `https://maps.googleapis.com/maps/api/place/details/json?` +
+                `place_id=${placeId}&` +
+                `fields=name,formatted_address,address_components,geometry,website&` +
+                `key=${process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY}`
+            );
+
+            const data = await response.json();
+
+            if (data.status === 'OK') {
+                const result = data.result;
+                const addressComponents = result.address_components;
+
+                // Parse address components
+                const streetNumber = addressComponents.find(comp => comp.types.includes('street_number'))?.long_name || '';
+                const streetName = addressComponents.find(comp => comp.types.includes('route'))?.long_name || '';
+                const city = addressComponents.find(comp => comp.types.includes('locality'))?.long_name || '';
+                const zip = addressComponents.find(comp => comp.types.includes('postal_code'))?.long_name || '';
+
+                return {
+                    street_address: `${streetNumber} ${streetName}`.trim(),
+                    city: city,
+                    zip: zip,
+                    geometry: result.geometry,
+                    website: result.website
+                };
+            }
+        } catch (error) {
+            console.error('Error getting place details:', error);
+        }
+        return null;
+    };
+
     const resetBarForm = () => {
         setBarName('');
         setStreetAddress('');
         setCity('');
         setZipCode('');
-        setSpecialType('happy_hour');
+        setSpecialType('none');
         setSpecialDays({
             monday: false, tuesday: false, wednesday: false, thursday: false,
             friday: false, saturday: false, sunday: false
@@ -231,7 +489,12 @@ export default function AddBarScreen() {
         setSpecialStart('');
         setSpecialEnd('');
         setSpecialDescription('');
+        setSelectedNearbyBar(null);
+        setNearbyBarSuggestions([]);
+        setShowNearbyBars(false);
     };
+
+    // Render nearby bar suggestion - REMOVED (now using inline .map())
 
     return (
         <KeyboardAvoidingView
@@ -244,6 +507,11 @@ export default function AddBarScreen() {
                     <Text style={styles.subtitle}>
                         Help the community discover great beer spots!
                     </Text>
+                    {userLocation && (
+                        <Text style={styles.locationStatus}>
+                            📍 GPS enabled - we'll suggest nearby bars as you type
+                        </Text>
+                    )}
                 </View>
 
                 <View style={styles.form}>
@@ -256,13 +524,57 @@ export default function AddBarScreen() {
                     )}
 
                     <Text style={styles.label}>Bar Name *</Text>
-                    <TextInput
-                        style={styles.input}
-                        placeholder="e.g., Fishtown Tavern"
-                        value={barName}
-                        onChangeText={setBarName}
-                        autoCapitalize="words"
-                    />
+                    <View style={[styles.inputContainer, { zIndex: 1000 }]}>
+                        <TextInput
+                            style={styles.input}
+                            placeholder="e.g., Fishtown Tavern"
+                            value={barName}
+                            onChangeText={handleBarNameChange}
+                            autoCapitalize="words"
+                        />
+
+                        {isSearchingNearby && (
+                            <Text style={styles.searchingText}>🔍 Finding nearby bars...</Text>
+                        )}
+
+                        {selectedNearbyBar && (
+                            <View style={styles.selectedBarInfo}>
+                                <Text style={styles.selectedBarText}>
+                                    ✅ Selected: {selectedNearbyBar.name}
+                                </Text>
+                                <Text style={styles.selectedBarMeta}>
+                                    📍 {selectedNearbyBar.distance.toFixed(1)}km away • Auto-filled address
+                                </Text>
+                            </View>
+                        )}
+
+                        {showNearbyBars && nearbyBarSuggestions.length > 0 && (
+                            <View style={styles.suggestionsContainer}>
+                                <Text style={styles.suggestionsHeader}>📍 Nearby bars matching "{barName}":</Text>
+                                <View style={styles.suggestionsList}>
+                                    {nearbyBarSuggestions.map((item) => (
+                                        <TouchableOpacity
+                                            key={item.placeId}
+                                            style={styles.nearbyBarItem}
+                                            onPress={() => selectNearbyBar(item)}
+                                        >
+                                            <Text style={styles.nearbyBarName}>{item.name}</Text>
+                                            <Text style={styles.nearbyBarAddress}>{item.address}</Text>
+                                            <View style={styles.nearbyBarMeta}>
+                                                <Text style={styles.distance}>📍 {item.distance.toFixed(1)}km away</Text>
+                                                {item.rating && <Text style={styles.rating}>⭐ {item.rating}/5</Text>}
+                                                {item.isOpen !== undefined && (
+                                                    <Text style={[styles.openStatus, { color: item.isOpen ? '#10b981' : '#ef4444' }]}>
+                                                        {item.isOpen ? '🟢 Open' : '🔴 Closed'}
+                                                    </Text>
+                                                )}
+                                            </View>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+                            </View>
+                        )}
+                    </View>
 
                     <Text style={styles.label}>Street Address *</Text>
                     <TextInput
@@ -316,10 +628,20 @@ export default function AddBarScreen() {
                         </View>
                     </View>
 
-                    <Text style={styles.sectionTitle}>Beer Specials</Text>
+                    <Text style={styles.sectionTitle}>Beer Specials (Optional)</Text>
 
                     {/* Special Type Selection */}
-                    <Text style={styles.label}>What type of beer specials does this bar have?</Text>
+                    <Text style={styles.label}>Does this bar have beer specials?</Text>
+
+                    <TouchableOpacity
+                        style={styles.checkboxContainer}
+                        onPress={() => setSpecialType('none')}
+                    >
+                        <View style={[styles.radioButton, specialType === 'none' && styles.radioButtonSelected]}>
+                            {specialType === 'none' && <View style={styles.radioButtonInner} />}
+                        </View>
+                        <Text style={styles.checkboxLabel}>No beer specials</Text>
+                    </TouchableOpacity>
 
                     <TouchableOpacity
                         style={styles.checkboxContainer}
@@ -495,7 +817,10 @@ export default function AddBarScreen() {
 
                     <View style={styles.infoBox}>
                         <Text style={styles.infoText}>
-                            📍 Location coordinates will be added automatically when we integrate with Google Maps
+                            {selectedNearbyBar
+                                ? '✅ Real coordinates from Google Maps'
+                                : '📍 Using approximate coordinates - select a suggested bar for precise location'
+                            }
                         </Text>
                     </View>
 
@@ -522,11 +847,11 @@ export default function AddBarScreen() {
         </KeyboardAvoidingView>
     );
 }
-
+// Add new styles for GPS suggestions
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#1e3a8a', // Philly blue theme
+        backgroundColor: '#1e3a8a',
     },
     scrollContent: {
         padding: 20,
@@ -538,13 +863,20 @@ const styles = StyleSheet.create({
     title: {
         fontSize: 28,
         fontWeight: 'bold',
-        color: '#FFD700', // Philly gold
+        color: '#FFD700',
         marginBottom: 8,
     },
     subtitle: {
         fontSize: 16,
         color: '#f1f5f9',
         textAlign: 'center',
+        marginBottom: 8,
+    },
+    locationStatus: {
+        fontSize: 12,
+        color: '#10b981',
+        textAlign: 'center',
+        fontStyle: 'italic',
     },
     form: {
         backgroundColor: '#1e40af',
@@ -566,6 +898,100 @@ const styles = StyleSheet.create({
         padding: 12,
         fontSize: 16,
         color: '#1e3a8a',
+    },
+    inputContainer: {
+        position: 'relative',
+        width: '100%',
+    },
+    searchingText: {
+        fontSize: 12,
+        color: '#3b82f6',
+        fontStyle: 'italic',
+        marginTop: 4,
+        marginBottom: 8,
+    },
+    selectedBarInfo: {
+        backgroundColor: '#dcfce7',
+        borderColor: '#16a34a',
+        borderWidth: 1,
+        borderRadius: 6,
+        padding: 8,
+        marginTop: 4,
+        marginBottom: 8,
+    },
+    selectedBarText: {
+        fontSize: 14,
+        color: '#15803d',
+        fontWeight: '600',
+    },
+    selectedBarMeta: {
+        fontSize: 12,
+        color: '#166534',
+        marginTop: 2,
+    },
+    suggestionsContainer: {
+        position: 'absolute',
+        top: 48,
+        left: 0,
+        right: 0,
+        backgroundColor: '#fff',
+        borderColor: '#ccc',
+        borderWidth: 1,
+        borderTopWidth: 0,
+        borderBottomLeftRadius: 8,
+        borderBottomRightRadius: 8,
+        maxHeight: 200,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 5,
+    },
+    suggestionsHeader: {
+        fontSize: 12,
+        color: '#666',
+        padding: 8,
+        borderBottomWidth: 1,
+        borderBottomColor: '#eee',
+        fontWeight: '600',
+    },
+    suggestionsList: {
+        maxHeight: 160,
+    },
+    nearbyBarItem: {
+        padding: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: '#eee',
+    },
+    nearbyBarName: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#333',
+    },
+    nearbyBarAddress: {
+        fontSize: 14,
+        color: '#666',
+        marginTop: 2,
+    },
+    nearbyBarMeta: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 4,
+        flexWrap: 'wrap',
+    },
+    distance: {
+        fontSize: 12,
+        color: '#2563eb',
+        marginRight: 12,
+    },
+    rating: {
+        fontSize: 12,
+        color: '#f59e0b',
+        marginRight: 12,
+    },
+    openStatus: {
+        fontSize: 12,
+        fontWeight: '600',
     },
     row: {
         flexDirection: 'row',
