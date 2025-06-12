@@ -15,81 +15,199 @@ export interface MenuBeer {
 }
 
 
-export async function processMenuPhoto(imageUri: string, barId?: string): Promise<MenuBeer[]> {
+export async function processMenuPhoto(
+    imageUri: string,
+    barId?: string,
+    allBeersFromThisBrewery: boolean = false
+): Promise<MenuBeer[]> {
     try {
-        console.log('📷 Starting menu processing pipeline...');
-        console.log(`🏪 Bar ID: ${barId}`);
+        console.log('🔧 processMenuPhoto called with:');
+        console.log('🔧 imageUri:', imageUri);
+        console.log('🔧 barId:', barId);
+        console.log('🔧 allBeersFromThisBrewery:', allBeersFromThisBrewery);
 
-        // Step 1: Extract basic info with Claude Vision
-        console.log('🤖 Step 1: Claude Vision extraction...');
+        // Step 1: Get bar information
+        let barInfo = null;
+        if (barId) {
+            barInfo = await getBarInfo(barId);
+            console.log(`🏪 Bar info retrieved:`, barInfo);
+        }
+
+        // Step 2: Extract basic info with Claude Vision
+        console.log('🤖 About to call extractBeersWithClaude...');
         const claudeBeers = await extractBeersWithClaude(imageUri);
 
+        console.log('🤖 Claude extraction result:');
+        console.log('🤖 Number of beers:', claudeBeers?.length || 0);
+        console.log('🤖 Raw Claude response:', JSON.stringify(claudeBeers, null, 2));
+
         if (claudeBeers.length === 0) {
-            console.log('❌ No beers extracted from image');
+            console.log('❌ Claude returned zero beers');
             return [];
         }
 
-        console.log(`✅ Claude extracted ${claudeBeers.length} beers`);
+        console.log(`✅ Claude extracted ${claudeBeers.length} beers successfully`);
 
-        // Step 2: Enhanced validation and web search for each beer
-        console.log('🔍 Step 2: Enhancing with Brave Search...');
-        const enhancedBeers: MenuBeer[] = [];
+        // Step 3: Simple brewery attribution based on user choice
+        const enhancedBeers: MenuBeer[] = claudeBeers.map(beer => {
+            console.log(`🔧 Processing beer: ${beer.name}`);
 
-        for (const beer of claudeBeers) {
-            try {
-                console.log(`🔍 Processing: ${beer.name}`);
-
-                // Use the existing enhanceBeerWithWebData function
-                const enhancedBeer = await enhanceBeerWithWebData(beer);
-
-                // Additional validation after enhancement
-                const validatedBeer = await validateEnhancedBeer(enhancedBeer, barId);
-
-                if (validatedBeer) {
-                    enhancedBeers.push(validatedBeer);
-                    console.log(`✅ Enhanced: ${validatedBeer.name} (${validatedBeer.confidence})`);
-                } else {
-                    console.log(`❌ Rejected after validation: ${beer.name}`);
-                }
-
-                // Small delay to avoid rate limiting
-                await new Promise(resolve => setTimeout(resolve, 500));
-
-            } catch (error) {
-                console.error(`❌ Failed to enhance ${beer.name}:`, error);
-
-                // Fallback: create basic MenuBeer without enhancement
-                const fallbackBeer = createFallbackMenuBeer(beer, barId);
-                enhancedBeers.push(fallbackBeer);
+            if (allBeersFromThisBrewery && barInfo) {
+                console.log(`🏭 Attributing to house brewery: ${barInfo.name}`);
+                return {
+                    name: beer.name,
+                    brewery: barInfo.name,
+                    abv: beer.abv,
+                    price: beer.price,
+                    size: beer.size,
+                    type: beer.type,
+                    description: `House beer at ${barInfo.name}`,
+                    confidence: 'high' as const,
+                    rawText: `${beer.name} - House beer`
+                };
+            } else {
+                console.log(`🍺 Using mixed brewery attribution`);
+                return {
+                    name: beer.name,
+                    brewery: beer.brewery || 'Unknown Brewery',
+                    abv: beer.abv,
+                    price: beer.price,
+                    size: beer.size,
+                    type: beer.type,
+                    description: `Beer available at ${barInfo?.name || 'unknown location'}`,
+                    confidence: beer.confidence,
+                    rawText: `${beer.name} - ${beer.brewery ? 'Brewery detected' : 'Brewery unknown'}`
+                };
             }
-        }
+        });
 
-        console.log(`🎉 Final result: ${enhancedBeers.length} enhanced beers`);
+        console.log(`✅ Enhanced ${enhancedBeers.length} beers`);
+        console.log('✅ Final enhanced beers:', JSON.stringify(enhancedBeers, null, 2));
 
-        // Step 3: Final filtering and sorting
-        const finalBeers = enhancedBeers
-            .filter(beer => isBeerReasonable(beer))
-            .sort((a, b) => {
-                // Sort by confidence, then by completeness
-                const confidenceOrder = { 'high': 3, 'medium': 2, 'low': 1 };
-                const aScore = confidenceOrder[a.confidence] || 0;
-                const bScore = confidenceOrder[b.confidence] || 0;
+        const filteredBeers = enhancedBeers.filter(beer => isBeerReasonable(beer));
+        console.log(`✅ After filtering: ${filteredBeers.length} beers`);
 
-                if (aScore !== bScore) return bScore - aScore;
-
-                // Prefer beers with more complete information
-                const aCompleteness = getCompletenessScore(a);
-                const bCompleteness = getCompletenessScore(b);
-
-                return bCompleteness - aCompleteness;
-            });
-
-        console.log(`✅ Pipeline complete: ${finalBeers.length} final beers`);
-        return finalBeers;
+        return filteredBeers;
 
     } catch (error) {
-        console.error('❌ Menu processing pipeline failed:', error);
+        console.error('❌ processMenuPhoto failed:', error);
+        console.error('❌ Error details:', error.message);
+        console.error('❌ Error stack:', error.stack);
         return [];
+    }
+}
+
+
+async function createEnhancedMenuBeer(claudeBeer: ClaudeBeer, barInfo: any): Promise<MenuBeer> {
+    const beer: MenuBeer = {
+        name: claudeBeer.name,
+        brewery: 'Unknown Brewery', // Default
+        abv: claudeBeer.abv,
+        price: claudeBeer.price,
+        size: claudeBeer.size || 16,
+        type: claudeBeer.type,
+        description: `Beer extracted from menu scan`,
+        confidence: claudeBeer.confidence,
+        rawText: `${claudeBeer.name} - Vision extraction`,
+    };
+
+    // Strategy 1: If this is a brewery, assume house beers
+    if (barInfo && barInfo.is_brewery) {
+        beer.brewery = barInfo.name;
+        beer.description = `House beer at ${barInfo.name}`;
+        beer.confidence = 'high';
+        console.log(`🏭 Attributed to house brewery: ${barInfo.name}`);
+        return beer;
+    }
+
+    // Strategy 2: Try to find this beer in our database (indicating it's served here)
+    if (barInfo) {
+        const existingBeer = await findBeerInDatabase(claudeBeer.name, barInfo.id);
+        if (existingBeer) {
+            beer.brewery = existingBeer.brewery || barInfo.name;
+            beer.description = `Known beer at ${barInfo.name}`;
+            beer.confidence = 'high';
+            console.log(`📊 Found in database with brewery: ${beer.brewery}`);
+            return beer;
+        }
+    }
+
+    // Strategy 3: Check if beer name suggests it's a house beer
+    const houseIndicators = ['house', 'tap', 'special', 'signature', 'our', 'exclusive'];
+    const isLikelyHouseBeer = houseIndicators.some(indicator =>
+        claudeBeer.name.toLowerCase().includes(indicator)
+    );
+
+    if (isLikelyHouseBeer && barInfo) {
+        beer.brewery = barInfo.name;
+        beer.description = `Likely house beer at ${barInfo.name}`;
+        beer.confidence = 'medium';
+        console.log(`🏠 Detected house beer indicator, attributed to: ${barInfo.name}`);
+        return beer;
+    }
+
+    // Strategy 4: Try web search for brewery info (but be cautious)
+    try {
+        const webData = await searchBeerWithBrave(claudeBeer.name);
+        if (webData && webData.brewery && webData.confidence === 'high') {
+            beer.brewery = webData.brewery;
+            beer.description = `Brewery found via web search`;
+            beer.confidence = 'medium'; // Lower confidence since it's external
+            console.log(`🌐 Web search found brewery: ${webData.brewery}`);
+            return beer;
+        }
+    } catch (error) {
+        console.log(`🌐 Web search failed for ${claudeBeer.name}`);
+    }
+
+    // Strategy 5: Default to bar name if all else fails
+    if (barInfo) {
+        beer.brewery = barInfo.name;
+        beer.description = `Available at ${barInfo.name}`;
+        beer.confidence = 'low';
+        console.log(`🎯 Defaulted brewery to bar: ${barInfo.name}`);
+    }
+
+    return beer;
+}
+async function findBeerInDatabase(beerName: string, barId: string): Promise<any> {
+    try {
+        const { supabase } = await import('./supabase');
+
+        const { data, error } = await supabase
+            .from('beers')
+            .select(`
+                name, 
+                breweries(name),
+                bars(name)
+            `)
+            .eq('bar_id', barId)
+            .ilike('name', `%${beerName}%`)
+            .eq('pending_review', false)
+            .limit(1)
+            .single();
+
+        if (error || !data) return null;
+
+        return {
+            name: data.name,
+            brewery: data.breweries?.name,
+            bar: data.bars?.name
+        };
+
+    } catch (error) {
+        console.log('Database search failed:', error);
+        return null;
+    }
+}
+async function searchBeerWithBrave(beerName: string): Promise<any> {
+    try {
+        // Import here to avoid circular dependency
+        const { searchBeerWithBrave: searchFunction } = await import('./supabase');
+        return await searchFunction(beerName);
+    } catch (error) {
+        console.log('Brave search not available');
+        return null;
     }
 }
 
@@ -138,19 +256,20 @@ async function validateEnhancedBeer(beer: MenuBeer, barId?: string): Promise<Men
 }
 
 // Create fallback MenuBeer when enhancement fails
-function createFallbackMenuBeer(claudeBeer: ClaudeBeer, barId?: string): MenuBeer {
+function createFallbackMenuBeer(claudeBeer: ClaudeBeer, barInfo: any): MenuBeer {
     return {
         name: claudeBeer.name,
-        brewery: claudeBeer.brewery || 'Unknown Brewery',
+        brewery: barInfo?.name || 'Unknown Brewery',
         abv: claudeBeer.abv,
         price: claudeBeer.price,
         size: claudeBeer.size || 16,
         type: claudeBeer.type,
-        description: `Beer extracted from menu scan`,
+        description: `Beer extracted from menu scan at ${barInfo?.name || 'unknown location'}`,
         confidence: 'low',
         rawText: `${claudeBeer.name} - Vision extraction only`,
     };
 }
+
 
 // Check if beer data is reasonable
 function isBeerReasonable(beer: MenuBeer): boolean {
