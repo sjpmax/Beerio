@@ -2,12 +2,16 @@
 import { View, Text, TouchableOpacity, StyleSheet, Button, FlatList } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { supabase } from '../../utils/supabase';
+import { Picker } from '@react-native-picker/picker';
 
 export default function BeerValueTable() {
     const [beers, setBeers] = useState([]);
     const [sortConfig, setSortConfig] = useState({ key: 'valueScore', direction: 'desc' });
     const [loading, setLoading] = useState(true);
     const navigation = useNavigation();
+    const [selectedBeerType, setSelectedBeerType] = useState('');
+    const [beerTypes, setBeerTypes] = useState([]);
+    const [filteredBeers, setFilteredBeers] = useState([]);
 
     // Calculate how much alcohol you get per dollar (ABV * oz / price)
     const calculateValueScore = (beer) => {
@@ -36,6 +40,7 @@ export default function BeerValueTable() {
                 }));
 
                 setBeers(beersWithScore);
+                setFilteredBeers(beersWithScore); // Initialize filtered list
             } catch (error) {
                 console.error('Error:', error.message);
             } finally {
@@ -46,6 +51,31 @@ export default function BeerValueTable() {
         fetchBeers();
     }, []);
 
+    // FIXED: Only show beer types that exist in current data
+    useEffect(() => {
+        if (beers.length > 0) {
+            // Get unique beer types that actually exist in the current beer list
+            const existingTypes = [...new Set(
+                beers
+                    .map(beer => beer.type)
+                    .filter(type => type && type.trim()) // Remove null/empty types
+            )].sort();
+
+            setBeerTypes(existingTypes.map(type => ({ type })));
+        }
+    }, [beers]);
+
+    useEffect(() => {
+        if (!selectedBeerType) {
+            setFilteredBeers(beers);
+        } else {
+            const filtered = beers.filter(beer =>
+                beer.type && beer.type.toLowerCase() === selectedBeerType.toLowerCase()
+            );
+            setFilteredBeers(filtered);
+        }
+    }, [selectedBeerType, beers]);
+
     // Sort function
     const sortBeers = (key) => {
         let direction = 'asc';
@@ -53,13 +83,13 @@ export default function BeerValueTable() {
             direction = 'desc';
         }
 
-        const sortedData = [...beers].sort((a, b) => {
+        const sortedData = [...filteredBeers].sort((a, b) => {
             if (a[key] < b[key]) return direction === 'asc' ? -1 : 1;
             if (a[key] > b[key]) return direction === 'asc' ? 1 : -1;
             return 0;
         });
 
-        setBeers(sortedData);
+        setFilteredBeers(sortedData);
         setSortConfig({ key, direction });
     };
 
@@ -73,9 +103,9 @@ export default function BeerValueTable() {
 
     // Find the beer with the best value score
     const getBestValueId = () => {
-        if (!beers.length) return null;
-        let bestBeer = beers[0];
-        for (const beer of beers) {
+        if (!filteredBeers.length) return null;
+        let bestBeer = filteredBeers[0];
+        for (const beer of filteredBeers) {
             if (beer.valueScore > bestBeer.valueScore) {
                 bestBeer = beer;
             }
@@ -103,10 +133,49 @@ export default function BeerValueTable() {
         </View>
     );
 
-    // Header component for FlatList
+    const FilterComponent = () => (
+        <View style={styles.filterContainer}>
+            <Text style={styles.filterLabel}>Filter by Beer Type:</Text>
+            <View style={styles.pickerWrapper}>
+                <Picker
+                    selectedValue={selectedBeerType}
+                    onValueChange={(itemValue) => setSelectedBeerType(itemValue)}
+                    style={styles.filterPicker}
+                >
+                    <Picker.Item label="All Beer Types" value="" />
+                    {beerTypes.map((type) => (
+                        <Picker.Item
+                            key={type.type}
+                            label={type.type}
+                            value={type.type}
+                        />
+                    ))}
+                </Picker>
+            </View>
+            {selectedBeerType && (
+                <TouchableOpacity
+                    style={styles.clearFilterButton}
+                    onPress={() => setSelectedBeerType('')}
+                >
+                    <Text style={styles.clearFilterText}>Clear</Text>
+                </TouchableOpacity>
+            )}
+        </View>
+    );
+
+    // FIXED: Added the missing header row content
     const ListHeader = () => (
         <>
             <Text style={styles.title}>Beer Value Comparison</Text>
+
+            <FilterComponent />
+
+            {selectedBeerType && (
+                <Text style={styles.filterStatus}>
+                    Showing {filteredBeers.length} {selectedBeerType} beer{filteredBeers.length !== 1 ? 's' : ''}
+                </Text>
+            )}
+
             <View style={styles.table}>
                 {/* Header Row */}
                 <View style={[styles.row, styles.headerRow]}>
@@ -154,73 +223,122 @@ export default function BeerValueTable() {
         </>
     );
 
- const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        padding: 16,
-        backgroundColor: '#1e3a8a',
-        alignItems: 'center', // Center the content
-    },
-    title: {
-        fontSize: 22,
-        fontWeight: 'bold',
-        marginBottom: 16,
-        textAlign: 'center',
-        color: '#FFD700',
-    },
-    table: {
-        borderWidth: 1,
-        borderColor: '#3b82f6',
-        borderRadius: 8,
-        overflow: 'hidden',
-        maxWidth: 1200, // Constrain max width
-        width: '100%', // But still responsive
-        alignSelf: 'center', // Center the table
-    },
-    row: {
-        flexDirection: 'row',
-        borderBottomWidth: 1,
-        borderColor: '#3b82f6',
-        minHeight: 44, // Consistent row height
-    },
-    headerRow: {
-        backgroundColor: '#1e40af',
-    },
-    bestValueRow: {
-        backgroundColor: '#166534',
-    },
-    headerCell: {
-        padding: 8, // Reduced padding
-        fontWeight: 'bold',
-        color: '#FFD700',
-        textAlign: 'center',
-        fontSize: 14, // Smaller font
-    },
-    cell: {
-        padding: 8, // Reduced padding
-        textAlign: 'center',
-        color: '#f1f5f9',
-        fontSize: 13, // Smaller font for data
-    },
-    loading: {
-        padding: 20,
-        textAlign: 'center',
-        color: '#FFD700',
-    },
-    footer: {
-        marginTop: 16,
-        padding: 16,
-        backgroundColor: '#1e40af',
-        borderRadius: 8,
-        maxWidth: 1200, // Match table width
-        width: '100%',
-        alignSelf: 'center',
-    },
-    footerText: {
-        color: '#f1f5f9',
-        fontSize: 14,
-    }
-});
+    const styles = StyleSheet.create({
+        container: {
+            flex: 1,
+            padding: 16,
+            backgroundColor: '#1e3a8a',
+            alignItems: 'center', // Center the content
+        },
+        title: {
+            fontSize: 22,
+            fontWeight: 'bold',
+            marginBottom: 16,
+            textAlign: 'center',
+            color: '#FFD700',
+        },
+        table: {
+            borderWidth: 1,
+            borderColor: '#3b82f6',
+            borderRadius: 8,
+            overflow: 'hidden',
+            maxWidth: 1200, // Constrain max width
+            width: '100%', // But still responsive
+            alignSelf: 'center', // Center the table
+        },
+        row: {
+            flexDirection: 'row',
+            borderBottomWidth: 1,
+            borderColor: '#3b82f6',
+            minHeight: 44, // Consistent row height
+        },
+        headerRow: {
+            backgroundColor: '#1e40af',
+        },
+        bestValueRow: {
+            backgroundColor: '#166534',
+        },
+        headerCell: {
+            padding: 8, // Reduced padding
+            fontWeight: 'bold',
+            color: '#FFD700',
+            textAlign: 'center',
+            fontSize: 14, // Smaller font
+        },
+        cell: {
+            padding: 8, // Reduced padding
+            textAlign: 'center',
+            color: '#f1f5f9',
+            fontSize: 13, // Smaller font for data
+        },
+        loading: {
+            padding: 20,
+            textAlign: 'center',
+            color: '#FFD700',
+        },
+        footer: {
+            marginTop: 16,
+            padding: 16,
+            backgroundColor: '#1e40af',
+            borderRadius: 8,
+            maxWidth: 1200, // Match table width
+            width: '100%',
+            alignSelf: 'center',
+        },
+        footerText: {
+            color: '#f1f5f9',
+            fontSize: 14,
+        },
+        filterContainer: {
+            flexDirection: 'row',
+            alignItems: 'center',
+            backgroundColor: '#1e40af',
+            borderRadius: 8,
+            padding: 12,
+            marginBottom: 16,
+            flexWrap: 'wrap',
+        },
+        filterLabel: {
+            color: '#FFD700',
+            fontSize: 14,
+            fontWeight: '600',
+            marginRight: 12,
+            minWidth: 80,
+        },
+        pickerWrapper: {
+            backgroundColor: '#f1f5f9',
+            borderRadius: 6,
+            flex: 1,
+            minWidth: 150,
+            marginRight: 8,
+            height: 50, // Fixed height to prevent text cutoff
+            justifyContent: 'center',
+        },
+        filterPicker: {
+            color: '#1e3a8a',
+            height: 50, // Match wrapper height
+            fontSize: 14, // Smaller font to ensure it fits
+        },
+        clearFilterButton: {
+            backgroundColor: '#ef4444',
+            paddingHorizontal: 12,
+            paddingVertical: 6,
+            borderRadius: 4,
+        },
+        clearFilterText: {
+            color: '#fff',
+            fontSize: 12,
+            fontWeight: '600',
+        },
+        filterStatus: {
+            color: '#10b981',
+            fontSize: 14,
+            textAlign: 'center',
+            marginBottom: 12,
+            fontWeight: '600',
+        },
+    });
+
     if (loading) {
         return (
             <View style={styles.container}>
@@ -232,7 +350,7 @@ export default function BeerValueTable() {
     return (
         <View style={styles.container}>
             <FlatList
-                data={beers}
+                data={filteredBeers}
                 keyExtractor={(item) => item.id.toString()}
                 renderItem={renderBeerRow}
                 ListHeaderComponent={ListHeader}

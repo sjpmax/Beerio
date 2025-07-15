@@ -3,6 +3,7 @@
 import * as FileSystem from 'expo-file-system';
 import { Platform } from 'react-native';
 
+import { supabase } from './supabase';
 export interface ClaudeBeer {
     name: string;
     brewery?: string | null;
@@ -141,7 +142,7 @@ Return ONLY the JSON array, no other text.`
             .map((beer: any) => {
                 const cleaned: ClaudeBeer = {
                     name: String(beer.name || '').trim(),
-                    brewery: validateBrewery(beer.brewery),
+                    brewery: validateBrewery(beer.brewery, beer.name),
                     abv: validateABV(beer.abv),
                     price: validatePrice(beer.price),
                     size: validateSize(beer.size),
@@ -207,9 +208,11 @@ function isValidBeer(beer: any): boolean {
 
     return true;
 }
-
-function validateBrewery(brewery: any): string | null {
-    if (!brewery || typeof brewery !== 'string') return null;
+function validateBrewery(brewery: any, beerName: string = ''): string | null {
+    if (!brewery || typeof brewery !== 'string') {
+        // Try to infer brewery from well-known beer names
+        return inferBreweryFromBeerName(beerName);
+    }
 
     const breweryTrimmed = brewery.trim();
     if (breweryTrimmed.length < 2 || breweryTrimmed.length > 50) return null;
@@ -217,14 +220,80 @@ function validateBrewery(brewery: any): string | null {
     // Check for obviously made-up brewery names
     const suspiciousBreweries = [
         'unknown brewery', 'local brewery', 'house brewery', 'tap house',
-        'beer company', 'brewing company', 'brewery'
+        'beer company', 'brewing company', 'brewery', 'breweries',
+        'unknown', 'various', 'multiple', 'mixed', 'different'
     ];
 
     if (suspiciousBreweries.includes(breweryTrimmed.toLowerCase())) {
-        return null;
+        // Try to infer from beer name instead
+        return inferBreweryFromBeerName(beerName);
     }
 
     return breweryTrimmed;
+}
+
+function inferBreweryFromBeerName(beerName: string): string | null {
+    if (!beerName) return null;
+
+    const nameLower = beerName.toLowerCase().trim();
+
+    // Well-known beer to brewery mappings
+    const knownBeers: { [key: string]: string } = {
+        // Major brands
+        'guinness': 'Guinness',
+        'stella artois': 'Stella Artois',
+        'heineken': 'Heineken',
+        'corona': 'Corona',
+        'budweiser': 'Anheuser-Busch',
+        'bud light': 'Anheuser-Busch',
+        'miller lite': 'Miller Brewing',
+        'coors light': 'Coors',
+        'blue moon': 'Blue Moon Brewing',
+        'sam adams': 'Samuel Adams',
+        'yuengling': 'Yuengling',
+
+        // Craft breweries (from your menu)
+        'allagash curieux': 'Allagash Brewing',
+        'bell\'s two hearted': 'Bell\'s Brewery',
+        'two hearted': 'Bell\'s Brewery',
+        'hudson north': 'Hudson North Brewing',
+        'mainstay white flag': 'Mainstay Brewing',
+        'yards standard punch': 'Yards Brewing',
+        'yards philly pale': 'Yards Brewing',
+        'lancaster kolsch': 'Lancaster Brewing',
+        'lawson\'s hazy rays': 'Lawson\'s Finest Liquids',
+        'von trapp pilsner': 'Von Trapp Brewing',
+        'new trail trail marker': 'New Trail Brewing',
+        'love city callowhill': 'Love City Brewing',
+
+        // Common partial matches
+        'allagash': 'Allagash Brewing',
+        'bell\'s': 'Bell\'s Brewery',
+        'yards': 'Yards Brewing',
+        'lancaster': 'Lancaster Brewing',
+        'lawson\'s': 'Lawson\'s Finest Liquids',
+        'von trapp': 'Von Trapp Brewing',
+        'love city': 'Love City Brewing',
+        'mainstay': 'Mainstay Brewing',
+        'hudson': 'Hudson North Brewing'
+    };
+
+    // Direct match
+    if (knownBeers[nameLower]) {
+        console.log(`🏭 Mapped "${beerName}" to ${knownBeers[nameLower]}`);
+        return knownBeers[nameLower];
+    }
+
+    // Partial match - check if beer name contains any known brewery
+    for (const [beerKey, breweryName] of Object.entries(knownBeers)) {
+        if (nameLower.includes(beerKey)) {
+            console.log(`🏭 Partial match: "${beerName}" contains "${beerKey}" → ${breweryName}`);
+            return breweryName;
+        }
+    }
+
+    console.log(`🤷 No brewery mapping found for: "${beerName}"`);
+    return null;
 }
 
 function validatePrice(price: any): number | null {
@@ -263,34 +332,77 @@ function validateABV(abv: any): number | null {
     return numABV;
 }
 
-function validateBeerType(type: any): string {
-    if (!type || typeof type !== 'string') {
-        return 'Ale';
+function validateBeerType(type: any, beerName: string = '', brewery: string = ''): string {
+    // Ensure beer types are loaded
+    if (BEER_TYPES_CACHE.length === 0) {
+        BEER_TYPES_CACHE = getDefaultBeerTypes();
     }
 
-    const typeLower = type.toLowerCase().trim();
+    // If we have a type from Claude, try to match it
+    if (type && typeof type === 'string') {
+        const normalizedType = type.trim();
 
-    // Map common beer types
-    const typeMap: { [key: string]: string } = {
-        'ipa': 'IPA',
-        'india pale ale': 'IPA',
-        'pale ale': 'Pale Ale',
-        'lager': 'Lager',
-        'pilsner': 'Pilsner',
-        'stout': 'Stout',
-        'porter': 'Porter',
-        'wheat': 'Wheat Beer',
-        'hefeweizen': 'Wheat Beer',
-        'witbier': 'Wheat Beer',
-        'sour': 'Sour',
-        'amber': 'Amber Ale',
-        'brown': 'Brown Ale',
-        'blonde': 'Blonde Ale',
-        'light': 'Light Lager',
-        'lite': 'Light Lager'
-    };
+        // Direct match (case insensitive)
+        const directMatch = BEER_TYPES_CACHE.find(
+            dbType => dbType.toLowerCase() === normalizedType.toLowerCase()
+        );
+        if (directMatch) return directMatch;
+    }
 
-    return typeMap[typeLower] || 'Ale';
+    // Smart classification based on beer name and description
+    const searchText = `${beerName} ${brewery} ${type || ''}`.toLowerCase();
+
+    // IPA variations (most specific first)
+    if (searchText.includes('hazy') && searchText.includes('ipa')) return 'IPA';
+    if (searchText.includes('session') && searchText.includes('ipa')) return 'Session IPA';
+    if (searchText.includes('ipa') || searchText.includes('india pale ale')) return 'IPA';
+
+    // Stouts and Porters
+    if (searchText.includes('guinness')) return 'Stout';
+    if (searchText.includes('stout')) return 'Stout';
+    if (searchText.includes('porter')) return 'Porter';
+
+    // Lagers and Pilsners
+    if (searchText.includes('pilsner') || searchText.includes('pils')) return 'Pilsner';
+    if (searchText.includes('kolsch')) return 'Kolsch';
+    if (searchText.includes('märzen') || searchText.includes('oktoberfest')) return 'Märzen';
+    if (searchText.includes('vienna lager')) return 'Vienna Lager';
+    if (searchText.includes('lager')) return 'Lager';
+
+    // Wheat beers
+    if (searchText.includes('wit') || searchText.includes('white')) return 'Wheat Beer';
+    if (searchText.includes('wheat') || searchText.includes('hefeweizen')) return 'Hefeweizen';
+
+    // Belgian styles
+    if (searchText.includes('saison')) return 'Saison';
+    if (searchText.includes('tripel')) return 'Tripel';
+    if (searchText.includes('quadrupel')) return 'Quadrupel';
+    if (searchText.includes('belgian')) return 'Belgian Ale';
+
+    // Ale variations
+    if (searchText.includes('pale ale') && !searchText.includes('ipa')) return 'Pale Ale';
+    if (searchText.includes('brown ale')) return 'Brown Ale';
+    if (searchText.includes('amber ale')) return 'Amber Ale';
+    if (searchText.includes('blonde ale')) return 'Blonde Ale';
+    if (searchText.includes('red ale') || searchText.includes('irish red')) return 'Red Ale';
+    if (searchText.includes('cream ale')) return 'Cream Ale';
+
+    // Specialty styles
+    if (searchText.includes('sour')) return 'Sour';
+    if (searchText.includes('gose')) return 'Gose';
+    if (searchText.includes('barleywine')) return 'Barleywine';
+    if (searchText.includes('doppelbock')) return 'Doppelbock';
+
+    // Non-beer
+    if (searchText.includes('cider')) return 'Cider';
+    if (searchText.includes('seltzer')) return 'Hard Seltzer';
+
+    // Light beers
+    if (searchText.includes('lite') || searchText.includes('light')) return 'Lite';
+
+    // Default fallback
+    console.log(`🤔 Unknown beer type for "${beerName}" - defaulting to Pale Ale`);
+    return 'Pale Ale';
 }
 
 function isFoodItem(name: string): boolean {
@@ -304,6 +416,48 @@ function isFoodItem(name: string): boolean {
 
     const nameLower = name.toLowerCase();
     return foodKeywords.some(keyword => nameLower.includes(keyword));
+}
+
+
+let BEER_TYPES_CACHE: string[] = [];
+
+// Load beer types from your database on app start
+export async function loadBeerTypesFromDatabase(): Promise<string[]> {
+    try {
+        const { data, error } = await supabase
+            .from('beer_types')
+            .select('type')
+            .order('type');
+
+        if (error) throw error;
+
+        BEER_TYPES_CACHE = data.map(item => item.type);
+        console.log('✅ Loaded beer types from database:', BEER_TYPES_CACHE.length);
+        return BEER_TYPES_CACHE;
+    } catch (error) {
+        console.error('❌ Failed to load beer types:', error);
+        return getDefaultBeerTypes();
+    }
+}
+
+function getDefaultBeerTypes(): string[] {
+    return [
+        'IPA', 'Lager', 'Pilsner', 'Stout', 'Porter', 'Pale Ale',
+        'Wheat Beer', 'Sour', 'Brown Ale', 'Amber Ale', 'Blonde Ale',
+        'Barleywine', 'Belgian Ale', 'Hefeweizen', 'Cream Ale', 'Gose',
+        'Kolsch', 'Doppelbock', 'Tripel', 'Quadrupel', 'Lite',
+        'Saison', 'Red Ale', 'Irish Red', 'Märzen', 'Oktoberfest',
+        'Hard Seltzer', 'Cider', 'Vienna Lager', 'Session IPA'
+    ];
+}
+
+export async function initializeBeerTypes(): Promise<void> {
+    await loadBeerTypesFromDatabase();
+}
+
+// Helper function to get available beer types (for your picker)
+export function getAvailableBeerTypes(): string[] {
+    return BEER_TYPES_CACHE.length > 0 ? BEER_TYPES_CACHE : getDefaultBeerTypes();
 }
 
 function hasHallucination(beers: ClaudeBeer[]): boolean {

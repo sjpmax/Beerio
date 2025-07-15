@@ -9,6 +9,8 @@ import '../global.css';
 
 import { useColorScheme } from '@/components/useColorScheme';
 
+import { initializeBeerTypes } from '@/utils/claudeMenuReader';
+
 export {
   ErrorBoundary,
 } from 'expo-router';
@@ -16,6 +18,8 @@ export {
 export const unstable_settings = {
   initialRouteName: '(tabs)',
 };
+
+
 
 SplashScreen.preventAutoHideAsync();
 
@@ -34,6 +38,11 @@ export default function RootLayout() {
       SplashScreen.hideAsync();
     }
   }, [loaded]);
+
+    useEffect(() => {
+        // Initialize beer types from database
+        initializeBeerTypes().catch(console.error);
+    }, []);
 
   if (!loaded) {
     return null;
