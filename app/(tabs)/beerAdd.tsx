@@ -897,7 +897,7 @@ export default function BeerAdd() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#f4f4f5',
+        backgroundColor: '#1e3a8a', // Dark blue background
     },
     content: {
         padding: 20,
@@ -906,7 +906,7 @@ const styles = StyleSheet.create({
     card: {
         width: '100%',
         maxWidth: 500,
-        backgroundColor: '#fff',
+        backgroundColor: '#1e40af', // Slightly lighter blue for card
         borderRadius: 16,
         padding: 20,
         shadowColor: '#000',
@@ -933,23 +933,23 @@ const styles = StyleSheet.create({
 
     // Menu scanning section
     menuScanSection: {
-        backgroundColor: '#f8fafc',
+        backgroundColor: '#3b82f6', // Medium blue
         borderRadius: 12,
         padding: 16,
         marginBottom: 20,
         borderWidth: 2,
-        borderColor: '#e2e8f0',
+        borderColor: '#FFD700', // Gold border
         borderStyle: 'dashed',
     },
     sectionTitle: {
         fontSize: 18,
         fontWeight: 'bold',
-        color: '#1e293b',
+        color: '#FFD700', // Gold text
         marginBottom: 4,
     },
     sectionSubtitle: {
         fontSize: 14,
-        color: '#64748b',
+        color: '#f1f5f9', // Light text
         marginBottom: 12,
     },
     menuButtonRow: {
@@ -957,14 +957,14 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
     },
     menuButton: {
-        backgroundColor: '#3b82f6',
+        backgroundColor: '#FFD700', // Gold buttons
         padding: 12,
         borderRadius: 8,
         flex: 0.48,
         alignItems: 'center',
     },
     menuButtonText: {
-        color: '#fff',
+        color: '#1e3a8a', // Dark blue text on gold
         fontWeight: '600',
         fontSize: 14,
     },
@@ -976,16 +976,17 @@ const styles = StyleSheet.create({
         marginBottom: 16,
     },
     input: {
-        backgroundColor: '#fff',
-        borderColor: '#ccc',
+        backgroundColor: '#f1f5f9', // Light gray input background
+        borderColor: '#3b82f6',
         borderWidth: 1,
         borderRadius: 8,
         padding: 12,
         fontSize: 16,
+        color: '#1e3a8a', // Dark blue text
     },
     searchingText: {
         fontSize: 12,
-        color: '#666',
+        color: '#FFD700', // Gold text
         fontStyle: 'italic',
         marginTop: 4,
     },
@@ -999,7 +1000,8 @@ const styles = StyleSheet.create({
     },
     pickerWrapper: {
         flex: 1,
-        borderColor: '#ccc',
+        backgroundColor: '#f1f5f9',
+        borderColor: '#3b82f6',
         borderWidth: 1,
         borderRadius: 8,
         marginRight: 8,
@@ -1009,30 +1011,31 @@ const styles = StyleSheet.create({
     picker: {
         padding: 12,
         fontSize: 16,
+        color: '#1e3a8a', // Dark blue text
     },
     addButton: {
         width: 40,
         height: 40,
-        backgroundColor: '#2563eb',
+        backgroundColor: '#FFD700', // Gold button
         borderRadius: 8,
         justifyContent: 'center',
         alignItems: 'center',
         flexShrink: 0,
     },
     addButtonText: {
-        color: '#fff',
+        color: '#1e3a8a', // Dark blue text
         fontSize: 20,
         fontWeight: 'bold',
     },
 
     // Brewery attribution
     breweryAttributionSection: {
-        backgroundColor: '#f8fafc',
+        backgroundColor: '#3b82f6', // Medium blue
         borderRadius: 8,
         padding: 12,
         marginBottom: 16,
         borderWidth: 1,
-        borderColor: '#e2e8f0',
+        borderColor: '#FFD700', // Gold border
     },
     checkboxContainer: {
         flexDirection: 'row',
@@ -1043,7 +1046,7 @@ const styles = StyleSheet.create({
         width: 20,
         height: 20,
         borderWidth: 2,
-        borderColor: '#3b82f6',
+        borderColor: '#FFD700', // Gold border
         borderRadius: 4,
         marginRight: 12,
         backgroundColor: 'transparent',
@@ -1051,30 +1054,30 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     checkboxSelected: {
-        backgroundColor: '#3b82f6',
-        borderColor: '#3b82f6',
+        backgroundColor: '#FFD700', // Gold background when selected
+        borderColor: '#FFD700',
     },
     checkmark: {
-        color: '#fff',
+        color: '#1e3a8a', // Dark blue checkmark
         fontSize: 12,
         fontWeight: 'bold',
     },
     checkboxLabel: {
         fontSize: 16,
-        color: '#1e293b',
+        color: '#f1f5f9', // Light text
         fontWeight: '600',
         flex: 1,
     },
     subtext: {
         fontSize: 13,
-        color: '#64748b',
+        color: '#cbd5e1', // Lighter gray text
         fontStyle: 'italic',
         marginLeft: 32,
     },
 
     // AI Autofill
     aiButton: {
-        backgroundColor: '#ff6600',
+        backgroundColor: '#ff6600', // Keep orange for AI
         padding: 12,
         borderRadius: 8,
         alignItems: 'center',
@@ -1107,19 +1110,21 @@ const styles = StyleSheet.create({
 
     // Selected beer info
     selectedBeerInfo: {
-        backgroundColor: '#e6f7ff',
+        backgroundColor: '#3b82f6', // Blue background
+        borderColor: '#FFD700', // Gold border
+        borderWidth: 1,
         padding: 8,
         borderRadius: 6,
         marginTop: 8,
     },
     selectedBeerText: {
         fontSize: 14,
-        color: '#1890ff',
+        color: '#FFD700', // Gold text
         fontWeight: '500',
     },
     selectedBeerSource: {
         fontSize: 12,
-        color: '#666',
+        color: '#f1f5f9', // Light text
         marginTop: 2,
     },
 
@@ -1129,8 +1134,8 @@ const styles = StyleSheet.create({
         top: 48,
         left: 0,
         right: 0,
-        backgroundColor: '#fff',
-        borderColor: '#ccc',
+        backgroundColor: '#1e40af', // Dark blue background
+        borderColor: '#FFD700', // Gold border
         borderWidth: 1,
         borderTopWidth: 0,
         borderBottomLeftRadius: 8,
@@ -1149,26 +1154,26 @@ const styles = StyleSheet.create({
     suggestionItem: {
         padding: 12,
         borderBottomWidth: 1,
-        borderBottomColor: '#eee',
+        borderBottomColor: '#3b82f6',
     },
     suggestionName: {
         fontSize: 16,
         fontWeight: '600',
-        color: '#333',
+        color: '#FFD700', // Gold text
     },
     suggestionDetails: {
         fontSize: 14,
-        color: '#666',
+        color: '#f1f5f9', // Light text
         marginTop: 2,
     },
     suggestionLocation: {
         fontSize: 12,
-        color: '#666',
+        color: '#cbd5e1', // Lighter text
         marginTop: 2,
     },
     suggestionSource: {
         fontSize: 12,
-        color: '#2563eb',
+        color: '#60a5fa', // Light blue
         marginTop: 2,
     },
 
@@ -1185,14 +1190,14 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     imageButtonText: {
-        color: '#2563eb',
+        color: '#FFD700', // Gold text
         fontWeight: '600',
         fontSize: 16,
     },
 
     // Submit button
     submitButton: {
-        backgroundColor: '#2563eb',
+        backgroundColor: '#FFD700', // Gold button
         padding: 16,
         borderRadius: 8,
         alignItems: 'center',
@@ -1202,7 +1207,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#94a3b8',
     },
     submitButtonText: {
-        color: '#fff',
+        color: '#1e3a8a', // Dark blue text on gold
         fontSize: 18,
         fontWeight: '600',
     },
@@ -1210,7 +1215,7 @@ const styles = StyleSheet.create({
     // Modal styles
     modalContainer: {
         flex: 1,
-        backgroundColor: '#fff',
+        backgroundColor: '#1e3a8a', // Dark blue background
     },
     modalHeader: {
         flexDirection: 'row',
@@ -1218,25 +1223,26 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         padding: 20,
         borderBottomWidth: 1,
-        borderBottomColor: '#e2e8f0',
+        borderBottomColor: '#3b82f6',
+        backgroundColor: '#1e40af',
     },
     modalTitle: {
         fontSize: 20,
         fontWeight: 'bold',
-        color: '#1e293b',
+        color: '#FFD700', // Gold text
     },
     closeButton: {
         width: 32,
         height: 32,
         borderRadius: 16,
-        backgroundColor: '#f1f5f9',
+        backgroundColor: '#3b82f6',
         alignItems: 'center',
         justifyContent: 'center',
     },
     closeButtonText: {
         fontSize: 18,
         fontWeight: 'bold',
-        color: '#64748b',
+        color: '#f1f5f9',
     },
     menuImagePreview: {
         width: '100%',
@@ -1253,18 +1259,18 @@ const styles = StyleSheet.create({
     processingText: {
         fontSize: 18,
         fontWeight: 'bold',
-        color: '#3b82f6',
+        color: '#FFD700', // Gold text
         marginBottom: 8,
     },
     processingSubtext: {
         fontSize: 14,
-        color: '#64748b',
+        color: '#f1f5f9', // Light text
         textAlign: 'center',
     },
     resultsHeader: {
         fontSize: 16,
         fontWeight: 'bold',
-        color: '#1e293b',
+        color: '#FFD700', // Gold text
         padding: 16,
         paddingBottom: 8,
     },
@@ -1275,7 +1281,7 @@ const styles = StyleSheet.create({
 
     // Editable beer card
     editableBeerCard: {
-        backgroundColor: '#fff',
+        backgroundColor: '#1e40af', // Dark blue background
         borderRadius: 12,
         padding: 16,
         marginBottom: 12,
@@ -1284,6 +1290,8 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.1,
         shadowRadius: 4,
         elevation: 3,
+        borderWidth: 1,
+        borderColor: '#3b82f6',
     },
     beerHeader: {
         flexDirection: 'row',
@@ -1294,19 +1302,21 @@ const styles = StyleSheet.create({
     beerNameInput: {
         fontSize: 18,
         fontWeight: 'bold',
-        color: '#1e293b',
+        color: '#FFD700', // Gold text
         borderBottomWidth: 1,
-        borderBottomColor: '#e2e8f0',
+        borderBottomColor: '#3b82f6',
         paddingVertical: 8,
         marginBottom: 8,
+        backgroundColor: 'transparent',
     },
     breweryInput: {
         fontSize: 16,
-        color: '#64748b',
+        color: '#f1f5f9', // Light text
         borderBottomWidth: 1,
-        borderBottomColor: '#e2e8f0',
+        borderBottomColor: '#3b82f6',
         paddingVertical: 8,
         marginBottom: 12,
+        backgroundColor: 'transparent',
     },
     fieldRow: {
         flexDirection: 'row',
@@ -1322,45 +1332,46 @@ const styles = StyleSheet.create({
     fieldLabel: {
         fontSize: 14,
         fontWeight: '600',
-        color: '#374151',
+        color: '#FFD700', // Gold text
         minWidth: 35,
     },
     fieldInput: {
         borderWidth: 1,
-        borderColor: '#d1d5db',
+        borderColor: '#3b82f6',
         borderRadius: 6,
         paddingHorizontal: 8,
         paddingVertical: 4,
         fontSize: 14,
-        color: '#1f2937',
-        backgroundColor: '#f9fafb',
+        color: '#1e3a8a', // Dark text on light background
+        backgroundColor: '#f1f5f9',
         flex: 1,
         textAlign: 'center',
         marginHorizontal: 4,
     },
     fieldUnit: {
         fontSize: 14,
-        color: '#6b7280',
+        color: '#f1f5f9', // Light text
         fontWeight: '500',
     },
     typeInput: {
         fontSize: 14,
-        color: '#64748b',
+        color: '#f1f5f9', // Light text
         borderBottomWidth: 1,
-        borderBottomColor: '#e2e8f0',
+        borderBottomColor: '#3b82f6',
         paddingVertical: 8,
+        backgroundColor: 'transparent',
     },
 
     // Bulk add button
     bulkAddButton: {
-        backgroundColor: '#3b82f6',
+        backgroundColor: '#FFD700', // Gold button
         padding: 16,
         borderRadius: 8,
         margin: 16,
         alignItems: 'center',
     },
     bulkAddButtonText: {
-        color: '#fff',
+        color: '#1e3a8a', // Dark blue text on gold
         fontWeight: '600',
         fontSize: 16,
         textAlign: 'center',
